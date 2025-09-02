@@ -10,7 +10,7 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
         return pd.read_excel(uploaded, header=header_row, engine="openpyxl")
     except Exception as err:
-        st.warning(f"openpyxl a échoué ; utilisation de xlsx2csv → {err}")
+        # st.warning(f"openpyxl a échoué ; utilisation de xlsx2csv → {err}")
         from xlsx2csv import Xlsx2csv
         uploaded.seek(0)
         csv_buffer = StringIO()
@@ -55,18 +55,22 @@ def run_interface():
                 (df["n° de piece"].isin(ko_pieces)) & (df["Compte Généraux"] == "401000")
             ].copy()
 
+            # Ne garder qu'une ligne par libellé
+            df_unique = df_ko.drop_duplicates(subset="Libelle")
+
             edited = st.data_editor(
-                df_ko[
+                df_unique[
                     ["n° de piece", "Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]
                 ],
                 key="ko_editor",
                 hide_index=True,
             )
 
+
             if st.button("✅ Valider les corrections"):
                 for _, r in edited.iterrows():
                     idx = df[
-                        (df["n° de piece"] == r["n° de piece"]) & (df["Compte Généraux"] == "401000")
+                        (df["Libelle"] == r["Libelle"]) & (df["Compte Généraux"] == "401000")
                     ].index
                     if not idx.empty:
                         df.loc[
@@ -75,6 +79,7 @@ def run_interface():
                         ] = r[
                             ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]
                         ].values
+
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
                 if st.button("🔁 Relancer le contrôle"):
