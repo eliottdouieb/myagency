@@ -203,8 +203,41 @@ def run_encaissements():
             else:
                 st.warning("⚠️ Il reste des lignes avec '411-NO MEMBER ACCOUNT'. Corrige-les ci-dessous.")
 
+                import requests
+
+                # --- Config API (à mettre en haut du fichier si tu préfères) ---
+                API_URL = "https://preprod.api-concierge.mybackoffice.fr/api/myagency/controller/accounting"
+                API_HEADERS = {
+                    "Content-Type": "application/json",
+                    # "Authorization": "Bearer <token>"  # si besoin
+                }
+
+                # --- Helper pour envoyer la maj au CRM ---
+                def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
+                    payload = {
+                        "payload": {
+                            "InvoiceNumber": str(invoice_number).strip(),
+                            "type": "member",   # client
+                            "field": "vente",   # compte client 411
+                            "value": str(value).strip()
+                        }
+                    }
+                    try:
+                        resp = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=timeout)
+                        ctype = (resp.headers.get("content-type") or "").lower()
+                        body = resp.json() if "application/json" in ctype else resp.text
+                        return resp.status_code, body
+                    except requests.RequestException as e:
+                        return None, f"Request error: {e}"
+
                 # Tableau éditable des paires (Name, Account Global) uniques
-                unique_names = df_errors[['Name', 'Account Global','Invoice #']].drop_duplicates(keep='first')
+                unique_names = (
+                    df_errors
+                    .sort_values("Invoice #")  # facultatif : assure quel "premier" tu veux garder
+                    .drop_duplicates(subset=["Name", "Account Global"], keep="first")
+                    [["Name", "Account Global", "Invoice #"]]
+                )
+
                 edited_df = st.data_editor(unique_names, key="corrections", hide_index=True)
 
                 # Validation des corrections → applique sur df_source_encaissements
@@ -219,6 +252,33 @@ def run_encaissements():
                     st.session_state["df_source_encaissements"] = df_to_update
                     st.session_state["modifs_validees"] = True
                     st.session_state.pop("controle_logs", None)  # supprimer anciens logs avant relance
+
+                    # 2) PUSH des modifs vers le CRM pour chaque facture éditée
+                    api_logs = []
+                    with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
+                        for _, row in edited_df.iterrows():
+                            invoice_number = str(row["Invoice #"]).strip()
+                            compte_value = str(row["Account Global"]).strip()
+                            # même normalisation que local
+                            if compte_value == "411":
+                                compte_value = "411-NO MEMBER ACCOUNT"
+
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
+                                continue
+
+                            status, body = push_compte_tiers_to_crm(invoice_number, compte_value)
+                            if status and 200 <= status < 300:
+                                api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — Facture {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+
+                    with st.expander("Détails des mises à jour CRM"):
+                        for line in api_logs:
+                            st.write(line)
+
+
                     st.success("✅ Modifications enregistrées. Clique sur « Relancer le contrôle ».")
 
                 # Bouton de relance visible uniquement après validation

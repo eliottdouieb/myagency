@@ -47,8 +47,32 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
     ]
 
     df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)
-    df["Débit"] = df["Débit"].astype(str).str.replace(",", ".").str.replace(r"[^\d.]", "", regex=True).astype(float)
-    df["Crédit"] = df["Crédit"].astype(str).str.replace(",", ".").str.replace(r"[^\d.]", "", regex=True).astype(float)
+    # Nettoyage Débit
+    deb = (
+        df["Débit"]
+        .astype(str)
+        .str.replace("\u00A0", " ", regex=False)      # espace insécable -> normal
+        .str.replace("\u202F", " ", regex=False)      # espace fine -> normal
+        .str.replace(",", ".", regex=False)           # , décimale -> .
+        .str.replace(r"[^\d.\-]", "", regex=True)     # garde chiffres/point/signe -
+        .str.strip()
+        .str.replace(r"^\((.*)\)$", r"-\1", regex=True)  # (123,45) -> -123,45
+    )
+    df["Débit"] = pd.to_numeric(deb, errors="coerce").fillna(0.0)
+
+    # Nettoyage Crédit
+    cred = (
+        df["Crédit"]
+        .astype(str)
+        .str.replace("\u00A0", " ", regex=False)
+        .str.replace("\u202F", " ", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.replace(r"[^\d.\-]", "", regex=True)
+        .str.strip()
+        .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
+    )
+    df["Crédit"] = pd.to_numeric(cred, errors="coerce").fillna(0.0)
+
 
     df["ordre_excel"] = range(len(df))
     grouped = df.groupby("Numéro de facture", sort=False)

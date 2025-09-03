@@ -58,6 +58,35 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         df_ko["Compte tiers"] = "411"
         df_ko = df_ko.drop_duplicates(subset="Prénom et Nom")
 
+        import requests
+
+        # --- Config API (à mettre en haut du fichier si tu préfères) ---
+        API_URL = "https://preprod.api-concierge.mybackoffice.fr/api/myagency/controller/accounting"
+        API_HEADERS = {
+            "Content-Type": "application/json",
+            # "Authorization": "Bearer <token>"  # si besoin
+        }
+
+        # --- Helper pour envoyer la maj au CRM ---
+        def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
+            payload = {
+                "payload": {
+                    "InvoiceNumber": str(invoice_number).strip(),
+                    "type": "member",   # client
+                    "field": "vente",   # compte client 411
+                    "value": str(value).strip()
+                }
+            }
+            try:
+                resp = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=timeout)
+                ctype = (resp.headers.get("content-type") or "").lower()
+                body = resp.json() if "application/json" in ctype else resp.text
+                return resp.status_code, body
+            except requests.RequestException as e:
+                return None, f"Request error: {e}"
+
+        # -----------------------------------------------------------------------------------
+        # Ton UI existante + l'appel API par ligne
         edited_df = st.data_editor(
             df_ko[["Prénom et Nom", "Compte tiers", "Numéro de facture"]],
             key="factures_ko_global",
@@ -81,6 +110,31 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             st.session_state["df_source_ventes"] = df
             st.session_state.pop("controle_logs", None)  # supprimer anciens logs
             st.session_state["modifs_validees"] = True
+
+            # 2) PUSH des modifs vers le CRM pour chaque facture éditée
+            api_logs = []
+            with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
+                for _, row in edited_df.iterrows():
+                    invoice_number = str(row["Numéro de facture"]).strip()
+                    compte_value = str(row["Compte tiers"]).strip()
+                    # même normalisation que local
+                    if compte_value == "411":
+                        compte_value = "411-NO MEMBER ACCOUNT"
+
+                    # skip si facture vide
+                    if not invoice_number:
+                        api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
+                        continue
+
+                    status, body = push_compte_tiers_to_crm(invoice_number, compte_value)
+                    if status and 200 <= status < 300:
+                        api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status})")
+                    else:
+                        api_logs.append(f"❌ CRM ko — Facture {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+
+            with st.expander("Détails des mises à jour CRM"):
+                for line in api_logs:
+                    st.write(line)
             st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
 
         # ✅ Affichage conditionnel des boutons après validation
