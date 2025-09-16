@@ -1,10 +1,56 @@
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO, StringIO
 import re, sys
 from typing import List, Tuple
 from controle_achats_logic import run_checks
+
+# ── AJOUT: helpers/API pour push CRM ──────────────────────────────────────────
+import requests
+
+API_URL = "https://preprod.api-concierge.mybackoffice.fr/api/myagency/controller/accounting"
+API_HEADERS = {"Content-Type": "application/json"}  # + Authorization si besoin
+
+def _to_date_iso(d) -> str:
+    if pd.isna(d):
+        return ""
+    if isinstance(d, pd.Timestamp):
+        return d.strftime("%Y-%m-%d")
+    s = str(d).strip()
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(s, errors="raise").strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+
+def build_invoice_number_from_piece_and_date(piece: str, date_facture) -> str:
+    date_iso = _to_date_iso(date_facture)
+    try:
+        month = pd.to_datetime(date_iso).month if date_iso else 0
+    except Exception:
+        month = 0
+    return f"{month:02d}-{str(piece).strip()}"
+
+def push_compte_tiers_to_crm(invoice_number: str, value: str, date_iso: str, timeout: float = 15.0):
+    payload = {
+        "payload": {
+            "InvoiceNumber": str(invoice_number),
+            "type": "member",
+            "field": "vente",   # conforme à ta spec même côté achats
+            "value": str(value),
+            "date": str(date_iso)
+        }
+    }
+    try:
+        resp = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=timeout)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        body = resp.json() if "application/json" in ctype else resp.text
+        return resp.status_code, body
+    except requests.RequestException as e:
+        return None, f"Request error: {e}"
+# ──────────────────────────────────────────────────────────────────────────────
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
@@ -66,7 +112,6 @@ def run_interface():
                 hide_index=True,
             )
 
-
             if st.button("✅ Valider les corrections"):
                 for _, r in edited.iterrows():
                     idx = df[
@@ -82,6 +127,39 @@ def run_interface():
 
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
+
+                # ── AJOUT: push API vers CRM par n° de pièce ─────────────────────
+                api_logs = []
+                with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
+                    for _, r in edited.iterrows():
+                        piece = str(r["n° de piece"]).strip()
+                        mask_piece = (df["n° de piece"].astype(str).str.strip() == piece) & (df["Compte Généraux"] == "401000")
+                        if not mask_piece.any():
+                            api_logs.append(f"⚠️ Pièce {piece}: aucune ligne 401000 trouvée, ignorée.")
+                            continue
+
+                        date_facture_piece = df.loc[mask_piece, "Date Facture"].iloc[0] if "Date Facture" in df.columns else ""
+                        date_iso = _to_date_iso(date_facture_piece)
+                        inv_num = build_invoice_number_from_piece_and_date(piece, date_facture_piece)
+                        compte_value = str(r.get("Compte Tiers", "")).strip()
+
+                        if not inv_num or not date_iso or not compte_value:
+                            api_logs.append(
+                                f"⚠️ Pièce {piece}: infos incomplètes — InvoiceNumber='{inv_num}', date='{date_iso}', Compte='{compte_value}'"
+                            )
+                            continue
+
+                        status, body = push_compte_tiers_to_crm(inv_num, compte_value, date_iso)
+                        if status and 200 <= status < 300:
+                            api_logs.append(f"✅ CRM ok — Pièce {piece} → {compte_value} | Invoice {inv_num} | date {date_iso} (HTTP {status})")
+                        else:
+                            api_logs.append(f"❌ CRM ko — Pièce {piece} → {compte_value} | Invoice {inv_num} | date {date_iso} (HTTP {status}) | {body}")
+
+                with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
+                # ────────────────────────────────────────────────────────────────
+
                 if st.button("🔁 Relancer le contrôle"):
                     st._is_running_with_streamlit = True
                     sys.exit()

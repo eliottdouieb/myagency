@@ -36,20 +36,18 @@ def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: 
         raise ValueError(f"Taux introuvable dans la réponse: {data}")
     return float(rate)
 
-def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], int, pd.DataFrame]:
-    logs = []
-    factures_ko = []
+from typing import List, Tuple
+import pandas as pd
 
-    df.columns = [
-        "Code journal", "Date de facture", "Compte général", "Compte tiers",
-        "Concierge", "Nom client + service", "Numéro de facture",
-        "Débit", "Crédit", "Monnaie", "Analytique", "Code"
-    ]
+
+def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], int, pd.DataFrame]:
+    logs: List[str] = []
+    factures_ko: List[str] = []
 
     df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)
-    # Nettoyage Débit
+    # Nettoyage Debit
     deb = (
-        df["Débit"]
+        df["Debit"]
         .astype(str)
         .str.replace("\u00A0", " ", regex=False)      # espace insécable -> normal
         .str.replace("\u202F", " ", regex=False)      # espace fine -> normal
@@ -58,11 +56,11 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
         .str.strip()
         .str.replace(r"^\((.*)\)$", r"-\1", regex=True)  # (123,45) -> -123,45
     )
-    df["Débit"] = pd.to_numeric(deb, errors="coerce").fillna(0.0)
+    df["Debit"] = pd.to_numeric(deb, errors="coerce").fillna(0.0)
 
-    # Nettoyage Crédit
+    # Nettoyage Credit
     cred = (
-        df["Crédit"]
+        df["Credit"]
         .astype(str)
         .str.replace("\u00A0", " ", regex=False)
         .str.replace("\u202F", " ", regex=False)
@@ -71,18 +69,18 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
         .str.strip()
         .str.replace(r"^\((.*)\)$", r"-\1", regex=True)
     )
-    df["Crédit"] = pd.to_numeric(cred, errors="coerce").fillna(0.0)
+    df["Credit"] = pd.to_numeric(cred, errors="coerce").fillna(0.0)
 
 
     df["ordre_excel"] = range(len(df))
-    grouped = df.groupby("Numéro de facture", sort=False)
-    facture_order = df.drop_duplicates("Numéro de facture")[["Numéro de facture", "ordre_excel"]].sort_values("ordre_excel")
-    ordered_groups = [grouped.get_group(facture) for facture in facture_order["Numéro de facture"]]
+    grouped = df.groupby("#", sort=False)
+    facture_order = df.drop_duplicates("#")[["#", "ordre_excel"]].sort_values("ordre_excel")
+    ordered_groups = [grouped.get_group(facture) for facture in facture_order["#"]]
 
     conversion_logs_map = {}
     for group in ordered_groups:
-        monnaie = group["Monnaie"].iloc[0]
-        num_facture = group["Numéro de facture"].iloc[0]
+        monnaie = group["Currency"].iloc[0]
+        num_facture = group["#"].iloc[0]
 
         if monnaie != "€":
             symbole = monnaie.strip()
@@ -95,48 +93,48 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
                 conversion_logs_map[num_facture] = [f"❌ Facture {num_facture} : symbole devise inconnu '{symbole}'"]
                 continue
 
-            date_facture = pd.to_datetime(group["Date de facture"].iloc[0]).strftime("%Y-%m-%d")
+            date_facture = pd.to_datetime(group["Date"].iloc[0]).strftime("%Y-%m-%d")
             try:
                 taux = get_conversion_rate_frankfurter(date_facture, code_devise)
-                df.loc[group.index, "Débit"] *= taux
-                df.loc[group.index, "Crédit"] *= taux
-                df.loc[group.index, "Monnaie"] = "€"
+                df.loc[group.index, "Debit"] *= taux
+                df.loc[group.index, "Credit"] *= taux
+                df.loc[group.index, "Currency"] = "€"
                 conversion_logs_map[num_facture] = [f"💱 Conversion en EUR appliquée pour la facture {num_facture} (taux : {taux})"]
             except Exception as e:
                 conversion_logs_map[num_facture] = [f"❌ Erreur conversion facture {num_facture} : {str(e)}"]
 
-    grouped = df.groupby("Numéro de facture", sort=False)
-    facture_order = df.drop_duplicates("Numéro de facture")[["Numéro de facture", "ordre_excel"]].sort_values("ordre_excel")
-    ordered_groups = [grouped.get_group(facture) for facture in facture_order["Numéro de facture"]]
+    grouped = df.groupby("#", sort=False)
+    facture_order = df.drop_duplicates("#")[["#", "ordre_excel"]].sort_values("ordre_excel")
+    ordered_groups = [grouped.get_group(facture) for facture in facture_order["#"]]
 
     factures_corrigees_manuellement = []
     correction_logs_map = {}
 
     for group in ordered_groups:
-        num_facture = group["Numéro de facture"].iloc[0]
+        num_facture = group["#"].iloc[0]
         if pd.isna(num_facture):
             continue
 
-        ligne_411 = group[group["Compte général"].astype(str).str.strip() == "411000"]
+        ligne_411 = group[group["Account General"].astype(str).str.strip() == "411000"]
 
         if ligne_411.shape[0] == 1:
             l411 = ligne_411.iloc[0]
-            autres = group[group["Compte général"].astype(str).str.strip() != "411000"]
+            autres = group[group["Account General"].astype(str).str.strip() != "411000"]
 
-            total_debit = group["Débit"].sum()
-            total_credit = group["Crédit"].sum()
+            total_debit = group["Debit"].sum()
+            total_credit = group["Credit"].sum()
 
             if total_debit == 0 and total_credit == 0 and len(group) >= 2:
                 idx_ligne_411 = ligne_411.index[0]
                 idx_autre = autres.index[0]
 
-                df.loc[[idx_ligne_411, idx_autre], "Compte général"] = l411["Compte général"]
-                df.loc[[idx_ligne_411, idx_autre], "Compte tiers"] = l411["Compte tiers"]
+                df.loc[[idx_ligne_411, idx_autre], "Account General"] = l411["Account General"]
+                df.loc[[idx_ligne_411, idx_autre], "Account Client"] = l411["Account Client"]
 
-                df.loc[idx_ligne_411, "Débit"] = 1.0
-                df.loc[idx_ligne_411, "Crédit"] = 0.0
-                df.loc[idx_autre, "Débit"] = 0.0
-                df.loc[idx_autre, "Crédit"] = 1.0
+                df.loc[idx_ligne_411, "Debit"] = 1.0
+                df.loc[idx_ligne_411, "Credit"] = 0.0
+                df.loc[idx_autre, "Debit"] = 0.0
+                df.loc[idx_autre, "Credit"] = 1.0
 
                 if df.loc[idx_ligne_411, "Code"] != "G":
                     df.loc[idx_ligne_411, "Code"] = "G"
@@ -149,89 +147,89 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
                 correction_logs_map[num_facture] = ["🔧 Erreur sur facture mise à 0 corrigée automatiquement"]
                 factures_corrigees_manuellement.append(num_facture)
 
-    grouped = df.groupby("Numéro de facture", sort=False)
-    facture_order = df.drop_duplicates("Numéro de facture")[["Numéro de facture", "ordre_excel"]].sort_values("ordre_excel")
-    ordered_groups = [grouped.get_group(facture) for facture in facture_order["Numéro de facture"]]
+    grouped = df.groupby("#", sort=False)
+    facture_order = df.drop_duplicates("#")[["#", "ordre_excel"]].sort_values("ordre_excel")
+    ordered_groups = [grouped.get_group(facture) for facture in facture_order["#"]]
 
     for group in ordered_groups:
-        num_facture = group["Numéro de facture"].iloc[0]
+        num_facture = group["#"].iloc[0]
         erreurs = []
 
         if pd.isna(num_facture):
-            erreurs.append("Numéro de facture manquant")
+            erreurs.append("# manquant")
             continue
 
-        if not (group["Code journal"] == "VE").all():
-            erreurs.append("Code journal ≠ VE")
-        if group["Date de facture"].nunique() > 1:
+        if not (group["VE"] == "VE").all():
+            erreurs.append("VE ≠ VE")
+        if group["Date"].nunique() > 1:
             erreurs.append("Dates différentes dans une même facture")
-        if group["Monnaie"].nunique() > 1 or group["Monnaie"].iloc[0] != "€":
-            erreurs.append(f"Facture non en euro (valeurs : {group['Monnaie'].unique().tolist()})")
+        if group["Currency"].nunique() > 1 or group["Currency"].iloc[0] != "€":
+            erreurs.append(f"Facture non en euro (valeurs : {group['Currency'].unique().tolist()})")
 
         first_row = group.sort_values("ordre_excel").iloc[0]
-        compte_premiere_ligne = str(first_row["Compte général"]).strip()
+        compte_premiere_ligne = str(first_row["Account General"]).strip()
         if compte_premiere_ligne != "411000":
             erreurs.append(f"1ère ligne ≠ 411000 (valeur : {compte_premiere_ligne})")
 
         if not all(code in ["A", "G"] for code in group["Code"]):
             erreurs.append("Code ≠ A ou G")
-        if not group["Analytique"][group["Code"] != "A"].isna().all():
-            erreurs.append("Analytique ne doit être rempli que si Code = A")
+        if not group["Analytic"][group["Code"] != "A"].isna().all():
+            erreurs.append("Analytic ne doit être rempli que si Code = A")
 
-        lignes_411 = group[group["Compte général"].astype(str).str.strip() == "411000"]
-        comptes_tiers_valides = ~lignes_411["Compte tiers"].astype(str).str.strip().eq("411-NO MEMBER ACCOUNT")
+        lignes_411 = group[group["Account General"].astype(str).str.strip() == "411000"]
+        comptes_tiers_valides = ~lignes_411["Account Client"].astype(str).str.strip().eq("411-NO MEMBER ACCOUNT")
 
-        # ✅ Cas spécial : 2 lignes 411000 avec Débit 1 et Crédit 1, et comptes tiers valides
+        # ✅ Cas spécial : 2 lignes 411000 avec Debit 1 et Credit 1, et comptes tiers valides
         if (
             len(group) == 2 and
             lignes_411.shape[0] == 2 and
             comptes_tiers_valides.all()
         ):
             l1, l2 = lignes_411.iloc[0], lignes_411.iloc[1]
-            d1, c1 = l1["Débit"], l1["Crédit"]
-            d2, c2 = l2["Débit"], l2["Crédit"]
+            d1, c1 = l1["Debit"], l1["Credit"]
+            d2, c2 = l2["Debit"], l2["Credit"]
 
             if (d1 == 1 and c1 == 0 and d2 == 0 and c2 == 1) or (d2 == 1 and c2 == 0 and d1 == 0 and c1 == 1):
-                logs.append(f"✅ Facture {num_facture} : Cas spécial 2 lignes 411000 avec Débit/Crédit inversés")
+                logs.append(f"✅ Facture {num_facture} : Cas spécial 2 lignes 411000 avec Debit/Credit inversés")
                 continue
 
         lignes_411_bad_tiers = group[
-            (group["Compte général"].astype(str).str.strip() == "411000") &
-            (group["Compte tiers"].astype(str).str.strip() == "411-NO MEMBER ACCOUNT")
+            (group["Account General"].astype(str).str.strip() == "411000") &
+            (group["Account Client"].astype(str).str.strip() == "411-NO MEMBER ACCOUNT")
         ]
         if not lignes_411_bad_tiers.empty:
-            erreurs.append("Ligne 411000 avec compte tiers '411-NO MEMBER ACCOUNT'")
+            erreurs.append("Ligne 411000 avec Account Client '411-NO MEMBER ACCOUNT'")
 
-        ligne_411 = group[group["Compte général"].astype(str).str.strip() == "411000"]
+        ligne_411 = group[group["Account General"].astype(str).str.strip() == "411000"]
         if ligne_411.shape[0] != 1 and num_facture not in factures_corrigees_manuellement:
             erreurs.append("Nombre ≠ 1 de lignes 411000")
         elif ligne_411.shape[0] == 1:
             l411 = ligne_411.iloc[0]
-            autres = group[group["Compte général"].astype(str).str.strip() != "411000"]
+            autres = group[group["Account General"].astype(str).str.strip() != "411000"]
 
-            if l411["Débit"] > 0 and l411["Crédit"] == 0:
-                if not (autres["Débit"] == 0).all():
-                    erreurs.append("Débit ≠ 0 sur lignes ≠ 411000")
-                if not (autres["Crédit"] > 0).all():
-                    erreurs.append("Crédit ≤ 0 sur lignes ≠ 411000")
+            if l411["Debit"] > 0 and l411["Credit"] == 0:
+                if not (autres["Debit"] == 0).all():
+                    erreurs.append("Debit ≠ 0 sur lignes ≠ 411000")
+                if not (autres["Credit"] > 0).all():
+                    erreurs.append("Credit ≤ 0 sur lignes ≠ 411000")
 
                 lignes_G = group[group["Code"] != "A"]
-                if round(lignes_G["Crédit"].sum() - l411["Débit"], 2) != 0:
-                    erreurs.append("Somme crédits ≠ Débit 411000")
+                if round(lignes_G["Credit"].sum() - l411["Debit"], 2) != 0:
+                    erreurs.append("Somme Credits ≠ Debit 411000")
 
-            elif l411["Crédit"] > 0 and l411["Débit"] == 0:
+            elif l411["Credit"] > 0 and l411["Debit"] == 0:
                 conversion_logs_map.setdefault(num_facture, []).append(f"🔄 Facture \"{num_facture}\" détectée comme AVOIR")
 
-                if not (autres["Crédit"] == 0).all():
-                    erreurs.append("Crédit ≠ 0 sur lignes ≠ 411000 (cas avoir)")
-                if not (autres["Débit"] > 0).all():
-                    erreurs.append("Débit ≤ 0 sur lignes ≠ 411000 (cas avoir)")
+                if not (autres["Credit"] == 0).all():
+                    erreurs.append("Credit ≠ 0 sur lignes ≠ 411000 (cas avoir)")
+                if not (autres["Debit"] > 0).all():
+                    erreurs.append("Debit ≤ 0 sur lignes ≠ 411000 (cas avoir)")
 
                 lignes_G = group[group["Code"] != "A"]
-                if round(lignes_G["Débit"].sum() - l411["Crédit"], 2) != 0:
-                    erreurs.append("Somme débits ≠ Crédit 411000 (cas avoir)")
+                if round(lignes_G["Debit"].sum() - l411["Credit"], 2) != 0:
+                    erreurs.append("Somme Debits ≠ Credit 411000 (cas avoir)")
             else:
-                erreurs.append("Ligne 411000 invalide (ni débit > 0 ni crédit > 0)")
+                erreurs.append("Ligne 411000 invalide (ni Debit > 0 ni Credit > 0)")
 
         statut = "❌" if erreurs else "✅"
         logs.append(f"{statut} Facture {num_facture} : {'KO' if erreurs else 'OK'}")
@@ -254,8 +252,8 @@ def run_ventes_checks_console(df: pd.DataFrame) -> Tuple[List[str], List[str], i
         df.drop(columns=["Concierge"], inplace=True)
         logs.append("✅ Colonne Concierge supprimée avant export.")
 
-    if not factures_ko and "Nom client + service" in df.columns:
-        df["Nom client + service"] = df["Nom client + service"].apply(clean_nom_client)
+    if not factures_ko and "Name" in df.columns:
+        df["Name"] = df["Name"].apply(clean_nom_client)
         logs.append("✅ Caractères spéciaux supprimée avant export.")
 
     if factures_ko:

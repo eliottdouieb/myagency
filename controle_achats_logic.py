@@ -50,13 +50,16 @@ def run_checks(df: pd.DataFrame) -> Tuple[List[str], List[str], int]:
     logs.append("✅ La colonne Compte Tiers ne comprend plus de 445660 mal placés.")
 
     for col in COLONNES_MONTANTS:
-        df[col] = (
+        s = (
             df[col]
             .astype(str)
-            .str.replace(",", ".", regex=False)
-            .str.replace(r"[^\d.]", "", regex=True)
-            .astype(float)
+            .str.replace(",", ".", regex=False)   # virgule -> point
+            .str.replace(" ", "", regex=False)    # espaces
         )
+        # extrait un nombre (avec signe) si présent, sinon 0
+        s = s.str.extract(r"(-?\d+(?:\.\d+)?)", expand=False).fillna("0")
+        df[col] = pd.to_numeric(s, errors="coerce").fillna(0.0)
+
 
     def check_achat(group: pd.DataFrame, idx: str) -> Tuple[List[str], List[str], bool]:
         errors, corrections = [], []
@@ -84,7 +87,7 @@ def run_checks(df: pd.DataFrame) -> Tuple[List[str], List[str], int]:
 
         autres = group[(group["Compte Généraux"] != "401000") & (group["Code"] != "A")]
         s_deb, s_cred = autres["Débit(€)"].sum(), autres["Crédit (€)"].sum()
-
+        
         if d401 == 0 and c401 == 0:
             if s_cred > 0 and s_deb == 0:
                 df.at[idx_401, "Débit(€)"] = s_cred
@@ -102,7 +105,7 @@ def run_checks(df: pd.DataFrame) -> Tuple[List[str], List[str], int]:
         is_avoir = avoir_ok
 
         if not (facture_ok or avoir_ok):
-            errors.append("Ligne 401000 : doit être (Débit 0 / Crédit >0) ou (Crédit 0 / Débit >0)")
+            errors.append("🆘 URGENCE: Somme des débits ≠ somme des crédits ")
 
         if not str(l401["Compte Tiers"]).startswith("401"):
             errors.append("Ligne 401000 : Compte Tiers invalide (doit commencer par 401)")
@@ -124,6 +127,19 @@ def run_checks(df: pd.DataFrame) -> Tuple[List[str], List[str], int]:
                 errors.append("Avoir : Crédit <= 0")
             if (autres["Débit(€)"] != 0).any():
                 errors.append("Avoir : Débit non nul")
+
+                # --- NOUVEAU : équilibre interne des lignes G ---
+        lignes_G_pures = group[group["Code"] == "G"]
+        g_deb = round(lignes_G_pures["Débit(€)"].sum(), 2)
+        g_cred = round(lignes_G_pures["Crédit (€)"].sum(), 2)
+        g_ecart = round(g_deb - g_cred, 2)
+
+        if g_ecart != 0:
+            errors.append(
+                f"🆘 URGENCE: Lignes 'G' déséquilibrées pour {idx} "
+                f"(Débit total={g_deb:.2f}, Crédit total={g_cred:.2f}, écart={g_ecart:+.2f})"
+            )
+
 
         lignes_G = group[group["Code"] != "A"]
         if facture_ok and round(lignes_G["Débit(€)"].sum() - c401, 2) != 0:
@@ -150,7 +166,12 @@ def run_checks(df: pd.DataFrame) -> Tuple[List[str], List[str], int]:
             logs.append(f"   🔄 Achat {npiece} détecté comme AVOIR")
 
         for e in err:
-            bullet = "🔻" if "COMPTE TIERS INVALIDE" in e.upper() else "🟢"
+            if "URGENCE" in e:
+                bullet = "🆘"
+            elif "COMPTE TIERS INVALIDE" in e.upper():
+                bullet = "🔻"
+            else:
+                bullet = "🟢"
             logs.append(f"   {bullet} {e}")
 
         achat_corrige = df.loc[achat.index]

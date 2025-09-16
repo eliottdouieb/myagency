@@ -4,16 +4,21 @@ from io import BytesIO, StringIO
 from controle_ventes_logic import run_ventes_checks_console
 from xlsx2csv import Xlsx2csv
 
-# ✅ Lecture robuste de fichier Excel
-def safe_read_excel(uploaded, header_row: int = 2) -> pd.DataFrame:
+# ✅ Lecture robuste de fichier Exce
+
+# ─── Logger léger ──────────────────────────────────────────────────────────────
+def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
         return pd.read_excel(uploaded, header=header_row, engine="openpyxl")
-    except Exception:
+    except Exception as err:
+        # st.warning(f"openpyxl a échoué ; utilisation de xlsx2csv → {err}")
+        from xlsx2csv import Xlsx2csv
         uploaded.seek(0)
         csv_buffer = StringIO()
-        Xlsx2csv(BytesIO(uploaded.read()), outputencoding="utf-8", startrow=header_row + 1).convert(csv_buffer)
+        Xlsx2csv(BytesIO(uploaded.read()), outputencoding="utf-8").convert(csv_buffer)
         csv_buffer.seek(0)
-        return pd.read_csv(csv_buffer, header=0)
+        return pd.read_csv(csv_buffer, header=header_row)
+
 
 # ✅ Conversion pour téléchargement Excel
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
@@ -52,10 +57,10 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         st.warning("Des ventes KO subsistent. Modifie les tableaux puis clique sur « Valider les corrections ».")
         st.markdown("### ✏️ Modifie les comptes tiers ci-dessous")
 
-        df_ko = df_checked[df_checked["Numéro de facture"].isin(factures_ko)].copy()
-        df_ko = df_ko.drop_duplicates(subset="Numéro de facture").copy()
-        df_ko["Prénom et Nom"] = df_ko["Nom client + service"].astype(str).str.split("-").str[0].str.strip()
-        df_ko["Compte tiers"] = "411"
+        df_ko = df_checked[df_checked["#"].isin(factures_ko)].copy()
+        df_ko = df_ko.drop_duplicates(subset="#").copy()
+        df_ko["Prénom et Nom"] = df_ko["Name"].astype(str).str.split("-").str[0].str.strip()
+        df_ko["Account Client"] = "411"
         df_ko = df_ko.drop_duplicates(subset="Prénom et Nom")
 
         import requests
@@ -88,7 +93,7 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         # -----------------------------------------------------------------------------------
         # Ton UI existante + l'appel API par ligne
         edited_df = st.data_editor(
-            df_ko[["Prénom et Nom", "Compte tiers", "Numéro de facture"]],
+            df_ko[["Prénom et Nom", "Account Client", "#"]],
             key="factures_ko_global",
             hide_index=False,
         )
@@ -97,15 +102,15 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         if st.button("✅ Valider les corrections"):
             mapping_nom_to_compte = {
                 nom: ("411-NO MEMBER ACCOUNT" if compte.strip() == "411" else compte.strip())
-                for nom, compte in zip(edited_df["Prénom et Nom"], edited_df["Compte tiers"])
+                for nom, compte in zip(edited_df["Prénom et Nom"], edited_df["Account Client"])
             }
 
             for nom, compte in mapping_nom_to_compte.items():
                 mask = (
-                    df["Nom client + service"].astype(str).str.startswith(nom)
-                    & (df["Compte général"].astype(str).str.strip() == "411000")
+                    df["Name"].astype(str).str.startswith(nom)
+                    & (df["Account General"].astype(str).str.strip() == "411000")
                 )
-                df.loc[mask, "Compte tiers"] = compte
+                df.loc[mask, "Account Client"] = compte
 
             st.session_state["df_source_ventes"] = df
             st.session_state.pop("controle_logs", None)  # supprimer anciens logs
@@ -115,8 +120,8 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             api_logs = []
             with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
                 for _, row in edited_df.iterrows():
-                    invoice_number = str(row["Numéro de facture"]).strip()
-                    compte_value = str(row["Compte tiers"]).strip()
+                    invoice_number = str(row["#"]).strip()
+                    compte_value = str(row["Account Client"]).strip()
                     # même normalisation que local
                     if compte_value == "411":
                         compte_value = "411-NO MEMBER ACCOUNT"
@@ -176,7 +181,7 @@ def run_interface():
     if "df_source_ventes" not in st.session_state:
         uploaded = st.file_uploader("Importe ton fichier Excel des ventes", type=["xlsx"], key="uploader_ventes")
         if uploaded:
-            df = safe_read_excel(uploaded, header_row=2)
+            df = safe_read_excel(uploaded, header_row=1)
             st.session_state["df_source_ventes"] = df
             afficher_interface(df, force_recontrole=True)
     else:
