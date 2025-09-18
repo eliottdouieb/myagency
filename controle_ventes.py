@@ -104,7 +104,7 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
 
         def _crm_base_url() -> str:
             # Lit la PROD depuis secrets, fallback sur l’URL officielle PROD
-            return (st.secrets["crm"].get("base_url", "https://api-concierge.mybackoffice.fr")).rstrip("/")
+            return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
 
         @st.cache_data(show_spinner=False, ttl=1800)  # cache le login ~30 min
         def _crm_login_prod() -> tuple[str, str]:
