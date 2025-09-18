@@ -28,6 +28,17 @@ def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf.seek(0)
     return buf
 
+def _get_invoice_date_from_source(invoice_number: str):
+    src = st.session_state["df_source_ventes"]
+    inv = str(invoice_number).strip()
+    for col in ("Date", "Date Facture", "Payment Date"):
+        if col in src.columns:
+            sub = src[src["#"].astype(str).str.strip() == inv]
+            if not sub.empty:
+                return sub.iloc[0][col]
+    return None
+
+
 # ✅ Interface principale
 def afficher_interface(df: pd.DataFrame, force_recontrole=False):
     if "modifs_validees" not in st.session_state:
@@ -62,41 +73,100 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         df_ko["Prénom et Nom"] = df_ko["Name"].astype(str).str.split("-").str[0].str.strip()
         df_ko["Account Client"] = "411"
         df_ko = df_ko.drop_duplicates(subset="Prénom et Nom")
+        df_ko["Date"] = df_ko["#"].apply(_get_invoice_date_from_source)
 
+        # ==== ⬇️ REMPLACE TOUT CE BLOC API PAR CELUI-CI (PROD + secrets) ⬇️ ====
         import requests
+        from datetime import datetime, date
 
-        # --- Config API (à mettre en haut du fichier si tu préfères) ---
-        API_URL = "https://preprod.api-concierge.mybackoffice.fr/api/myagency/controller/accounting"
-        API_HEADERS = {
-            "Content-Type": "application/json",
-            # "Authorization": "Bearer <token>"  # si besoin
-        }
 
-        # --- Helper pour envoyer la maj au CRM ---
-        def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
+        def _to_iso_date(v) -> str | None:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return None
+            if isinstance(v, (datetime, date, pd.Timestamp)):
+                return pd.to_datetime(v).strftime("%Y-%m-%d")
+            s = str(v).strip()
+            # essais directs
+            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+                try:
+                    return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+                except ValueError:
+                    pass
+            # essai pandas (dayfirst pour '27/06/2025')
+            try:
+                return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+            except Exception:
+                # sérial Excel éventuel
+                try:
+                    return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+                except Exception:
+                    return None
+
+        def _crm_base_url() -> str:
+            # Lit la PROD depuis secrets, fallback sur l’URL officielle PROD
+            return (st.secrets["crm"].get("base_url", "https://api-concierge.mybackoffice.fr")).rstrip("/")
+
+        @st.cache_data(show_spinner=False, ttl=1800)  # cache le login ~30 min
+        def _crm_login_prod() -> tuple[str, str]:
+            """
+            Login PROD → retourne (ConciergeHash, ApiToken)
+            """
+            auth_url = f"{_crm_base_url()}/api/appMember/concierge/login"
+            payload = {
+                "email": st.secrets["crm"]["email"],
+                "password": st.secrets["crm"]["password"],
+            }
+            r = requests.post(auth_url, json=payload, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("success"):
+                raise RuntimeError(f"Login failed: {data}")
+            concierge_hash = str(data.get("ConciergeHash", "")).strip()
+            api_token     = str(data.get("ApiToken", "")).strip()
+            if not concierge_hash or not api_token:
+                raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+            return concierge_hash, api_token
+
+        def push_compte_tiers_to_crm(invoice_number: str,date_1: str, value: str, timeout: float = 15.0):
+            """
+            Envoie la mise à jour en PROD :
+            POST /api/myagency/controller/accounting/{ConciergeHash}
+            Header: ApiToken
+            """
+            concierge_hash, api_token = _crm_login_prod()
+
+            url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
+            headers = {
+                "Content-Type": "application/json",
+                "ApiToken": api_token,
+            }
             payload = {
                 "payload": {
                     "InvoiceNumber": str(invoice_number).strip(),
                     "type": "member",   # client
                     "field": "vente",   # compte client 411
-                    "value": str(value).strip()
+                    "value": str(value).strip(),
+                    "date": _to_iso_date(date_1),  # décommente si tu dois envoyer une date côté ventes
                 }
             }
             try:
-                resp = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=timeout)
+                resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                 ctype = (resp.headers.get("content-type") or "").lower()
                 body = resp.json() if "application/json" in ctype else resp.text
                 return resp.status_code, body
             except requests.RequestException as e:
                 return None, f"Request error: {e}"
+        # ==== ⬆️ FIN DU BLOC REMPLACÉ ⬆️ ====
+
 
         # -----------------------------------------------------------------------------------
         # Ton UI existante + l'appel API par ligne
         edited_df = st.data_editor(
-            df_ko[["Prénom et Nom", "Account Client", "#"]],
+            df_ko[["Prénom et Nom", "Account Client", "#", "Date"]],
             key="factures_ko_global",
             hide_index=False,
         )
+
 
         # ✅ Application des corrections
         if st.button("✅ Valider les corrections"):
@@ -121,6 +191,7 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
                 for _, row in edited_df.iterrows():
                     invoice_number = str(row["#"]).strip()
+                    date_1 = str(row["Date"]).strip()
                     compte_value = str(row["Account Client"]).strip()
                     # même normalisation que local
                     if compte_value == "411":
@@ -131,7 +202,7 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                         api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
                         continue
 
-                    status, body = push_compte_tiers_to_crm(invoice_number, compte_value)
+                    status, body = push_compte_tiers_to_crm(invoice_number,date_1, compte_value)
                     if status and 200 <= status < 300:
                         api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status})")
                     else:
