@@ -203,32 +203,93 @@ def run_encaissements():
             else:
                 st.warning("⚠️ Il reste des lignes avec '411-NO MEMBER ACCOUNT'. Corrige-les ci-dessous.")
 
+                # ==== ⬇️ API (via secrets) — drop-in replacement for encaissements ⬇️ ====
                 import requests
+                from datetime import datetime, date
 
-                # --- Config API (à mettre en haut du fichier si tu préfères) ---
-                API_URL = "https://preprod.api-concierge.mybackoffice.fr/api/myagency/controller/accounting"
-                API_HEADERS = {
-                    "Content-Type": "application/json",
-                    # "Authorization": "Bearer <token>"  # si besoin
-                }
+                def _to_iso_date(v) -> str | None:
+                    if v is None or (isinstance(v, float) and pd.isna(v)):
+                        return None
+                    if isinstance(v, (datetime, date, pd.Timestamp)):
+                        return pd.to_datetime(v).strftime("%Y-%m-%d")
+                    s = str(v).strip()
+                    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+                        try:
+                            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+                        except ValueError:
+                            pass
+                    try:
+                        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+                    except Exception:
+                        try:
+                            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+                        except Exception:
+                            return None
 
-                # --- Helper pour envoyer la maj au CRM ---
+                def _crm_base_url() -> str:
+                    # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
+                    return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
+
+                @st.cache_data(show_spinner=False, ttl=1800)
+                def _crm_login() -> tuple[str, str]:
+                    auth_url = f"{_crm_base_url()}/api/appMember/concierge/login"
+                    payload = {"email": st.secrets["crm"]["email"], "password": st.secrets["crm"]["password"]}
+                    r = requests.post(auth_url, json=payload, timeout=30)
+                    r.raise_for_status()
+                    data = r.json()
+                    if not data.get("success"):
+                        raise RuntimeError(f"Login failed: {data}")
+                    concierge_hash = str(data.get("ConciergeHash", "")).strip()
+                    api_token     = str(data.get("ApiToken", "")).strip()
+                    if not concierge_hash or not api_token:
+                        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+                    return concierge_hash, api_token
+
                 def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
+                    """
+                    POST /api/myagency/controller/accounting/{ConciergeHash}
+                    Header: ApiToken
+                    + Ajoute 'date' (YYYY-MM-DD) si Payment Date est dispo dans df_source_encaissements
+                    """
+                    concierge_hash, api_token = _crm_login()
+
+                    url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
+                    headers = {
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "ApiToken": api_token,
+                    }
+
+                    # Récupère la date de paiement depuis la source, selon 'Invoice #'
+                    iso_date = None
+                    try:
+                        src = st.session_state.get("df_source_encaissements")
+                        if src is not None and "Payment Date" in src.columns:
+                            sub = src[src["Invoice #"].astype(str).str.strip() == str(invoice_number).strip()]
+                            if not sub.empty:
+                                iso_date = _to_iso_date(sub.iloc[0]["Payment Date"])
+                    except Exception:
+                        iso_date = None
+
                     payload = {
                         "payload": {
                             "InvoiceNumber": str(invoice_number).strip(),
-                            "type": "member",   # client
-                            "field": "vente",   # compte client 411
-                            "value": str(value).strip()
+                            "type": "member",
+                            "field": "vente",
+                            "value": str(value).strip(),
                         }
                     }
+                    if iso_date:  # n’ajoute la clé que si la date est valide
+                        payload["payload"]["date"] = iso_date
+
                     try:
-                        resp = requests.post(API_URL, json=payload, headers=API_HEADERS, timeout=timeout)
+                        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                         ctype = (resp.headers.get("content-type") or "").lower()
                         body = resp.json() if "application/json" in ctype else resp.text
                         return resp.status_code, body
                     except requests.RequestException as e:
                         return None, f"Request error: {e}"
+                # ==== ⬆️ FIN remplacement API encaissements ⬆️ ====
 
                 # Tableau éditable des paires (Name, Account Global) uniques
                 unique_names = (
