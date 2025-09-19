@@ -204,6 +204,7 @@ def run_encaissements():
                 st.warning("⚠️ Il reste des lignes avec '411-NO MEMBER ACCOUNT'. Corrige-les ci-dessous.")
 
                 # ==== ⬇️ API (via secrets) — drop-in replacement for encaissements ⬇️ ====
+                # ==== ⬇️ API (corrigée) — encaissements ⬇️ ====
                 import requests
                 from datetime import datetime, date
 
@@ -231,18 +232,39 @@ def run_encaissements():
                     return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
 
                 @st.cache_data(show_spinner=False, ttl=1800)
-                def _crm_login() -> tuple[str, str]:
-                    auth_url = f"{_crm_base_url()}/api/appMember/concierge/login"
+                def _crm_login_prod() -> tuple[str | None, str | None]:
+                    base = _crm_base_url()
+                    auth_url = f"{base}/api/appMember/concierge/login"
                     payload = {"email": st.secrets["crm"]["email"], "password": st.secrets["crm"]["password"]}
-                    r = requests.post(auth_url, json=payload, timeout=30)
-                    r.raise_for_status()
-                    data = r.json()
-                    if not data.get("success"):
-                        raise RuntimeError(f"Login failed: {data}")
-                    concierge_hash = str(data.get("ConciergeHash", "")).strip()
-                    api_token     = str(data.get("ApiToken", "")).strip()
+
+                    try:
+                        r = requests.post(auth_url, json=payload, timeout=30)
+                    except requests.RequestException as e:
+                        st.error("❌ Échec réseau (auth).")
+                        with st.expander("Détails réseau (auth)"):
+                            st.write({"auth_url": auth_url, "error": str(e)})
+                        return None, None
+
+                    ctype = (r.headers.get("content-type") or "").lower()
+                    try:
+                        body = r.json() if "application/json" in ctype else r.text
+                    except ValueError:
+                        body = r.text
+
+                    if r.status_code != 200 or not isinstance(body, dict) or not body.get("success"):
+                        st.error(f"❌ Auth KO (HTTP {r.status_code}).")
+                        with st.expander("Détails réponse (auth)"):
+                            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
+                        return None, None
+
+                    concierge_hash = str(body.get("ConciergeHash", "")).strip()
+                    api_token     = str(body.get("ApiToken", "")).strip()
                     if not concierge_hash or not api_token:
-                        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+                        st.error("❌ Auth KO (Hash/Token manquants).")
+                        with st.expander("Détails réponse (auth)"):
+                            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
+                        return None, None
+
                     return concierge_hash, api_token
 
                 def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
@@ -251,7 +273,9 @@ def run_encaissements():
                     Header: ApiToken
                     + Ajoute 'date' (YYYY-MM-DD) si Payment Date est dispo dans df_source_encaissements
                     """
-                    concierge_hash, api_token = _crm_login()
+                    concierge_hash, api_token = _crm_login_prod()
+                    if not concierge_hash or not api_token:
+                        return None, "auth_failed"
 
                     url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
                     headers = {
@@ -279,7 +303,7 @@ def run_encaissements():
                             "value": str(value).strip(),
                         }
                     }
-                    if iso_date:  # n’ajoute la clé que si la date est valide
+                    if iso_date:  # n’ajoute la date que si elle est valide
                         payload["payload"]["date"] = iso_date
 
                     try:
@@ -289,6 +313,8 @@ def run_encaissements():
                         return resp.status_code, body
                     except requests.RequestException as e:
                         return None, f"Request error: {e}"
+                # ==== ⬆️ FIN API corrigée ⬆️ ====
+
                 # ==== ⬆️ FIN remplacement API encaissements ⬆️ ====
 
                 # Tableau éditable des paires (Name, Account Global) uniques
