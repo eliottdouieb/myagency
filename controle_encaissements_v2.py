@@ -127,14 +127,29 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
 
         out.loc[idxs, "Account Global"] = out.loc[idxs, "Account Global"].apply(_map_5112_to_5113)
 
-        # 3) ajouter la commission au 'Debit' de la (première) ligne AG vide
+        # 3) ajouter la commission au 'Debit'
         ag_invoice = out.loc[idxs, "Account Global"]
-        blank_idx = ag_invoice[ag_invoice.isna() | (ag_invoice.astype(str).str.strip() == "")].index
-        if len(blank_idx) > 0:
-            cur = pd.to_numeric(out.loc[blank_idx[0], "Debit"], errors="coerce")
-            if pd.isna(cur):
-                cur = 0.0
-            out.loc[blank_idx[0], "Debit"] = round(float(cur) + credit_627, 2)
+        blank_mask = ag_invoice.isna() | (ag_invoice.astype(str).str.strip() == "")
+        target_idx = None
+
+        # 3a) priorité: une ligne avec Account Global vide
+        if blank_mask.any():
+            target_idx = ag_invoice[blank_mask].index[0]
+        else:
+            # 3b) sinon: la ligne client (Account Client == 411000) si présente
+            cand_411 = out.loc[idxs][out.loc[idxs, "Account Client"] == 411000].index
+            if len(cand_411) > 0:
+                target_idx = cand_411[0]
+            else:
+                # 3c) sinon: première ligne sans crédit (souvent côté débit)
+                cand_nocredit = out.loc[idxs][pd.to_numeric(out.loc[idxs, "Credit"], errors="coerce").fillna(0) == 0].index
+                target_idx = cand_nocredit[0] if len(cand_nocredit) > 0 else idxs[0]
+
+        cur = pd.to_numeric(out.loc[target_idx, "Debit"], errors="coerce")
+        if pd.isna(cur):
+            cur = 0.0
+        out.loc[target_idx, "Debit"] = round(float(cur) + credit_627, 2)
+
 
     return out
 
