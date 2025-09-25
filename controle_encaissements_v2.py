@@ -192,7 +192,7 @@ def run_encaissements():
                     df_export.loc[mask_swap, ["Account Client", "Account Global"]] = df_export.loc[mask_swap, ["Account Global", "Account Client"]].values
 
                 # 3) Supprimer les 3 colonnes demandées : Payment Mean, Payment Date, Comment (si présentes)
-                cols_to_drop = [c for c in ["Payment Mean", "Payment Date", "Comment"] if c in df_export.columns]
+                cols_to_drop = [c for c in ["Payment Mean", "Date", "Comment"] if c in df_export.columns]
                 if cols_to_drop:
                     df_export.drop(columns=cols_to_drop, inplace=True)
 
