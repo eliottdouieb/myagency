@@ -98,6 +98,11 @@ def transform_for_download(df):
     df.drop(columns=['Payment Mean', 'Date', 'Comment'], inplace=True)
     logs.append("🗑️ Colonnes 'Payment Mean', 'Date', 'Comment' supprimées.")
 
+    # Mettre 'Payment Date' en 2e colonne (index 1)
+    cols = list(df.columns)
+    cols.insert(1, cols.pop(cols.index('Payment Date')))
+    df = df[cols]
+
     return df, logs
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
