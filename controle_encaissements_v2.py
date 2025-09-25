@@ -86,7 +86,7 @@ def transform_for_download(df):
     df = df.copy()
     
     # 1. Échanger colonne J et B (Payment Mean avec Account Global)
-    df[['Date', 'Payment Date']] = df[['Payment date', 'Date']]
+    df[['Date', 'Payment Date']] = df[['Payment Date', 'Date']]
     logs.append("🔁 Colonnes 'Date' et 'Payment Date' échangées.")
 
     # 2. Si Account Client = 411000, échanger avec Account Global
@@ -96,7 +96,7 @@ def transform_for_download(df):
 
     # 3. Supprimer les colonnes J,K,L (Payment Mean, Payment Date, Comment)
     df.drop(columns=['Payment Mean', 'Date', 'Comment'], inplace=True)
-    logs.append("🗑️ Colonnes 'Payment Mean', 'Payment Date', 'Comment' supprimées.")
+    logs.append("🗑️ Colonnes 'Payment Mean', 'Date', 'Comment' supprimées.")
 
     return df, logs
 
