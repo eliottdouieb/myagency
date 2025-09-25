@@ -24,64 +24,6 @@ def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
 def clean_name(name):
     return name.split('-')[0].strip()
 
-def check_invoices(df):
-    logs = []
-    error = False
-    invoices = df['Invoice #'].unique()
-    for inv in invoices:
-        sub_df = df[df['Invoice #'] == inv]
-        debit_sum = sub_df['Debit'].sum()
-        credit_sum = sub_df['Credit'].sum()
-        debit_sum = round(debit_sum, 2)
-        credit_sum = round(credit_sum, 2)
-
-        sublogs = []
-        is_ok = True
-
-        # Rule A
-        if debit_sum != credit_sum:
-            sublogs.append(f"❌ Invoice {inv} : Debit ≠ Credit ({debit_sum} ≠ {credit_sum})")
-            is_ok = False
-
-        # Rule B - Vérification du format Account Global selon Payment Mean et mois
-        try:
-            payment_mean = sub_df['Payment Mean'].iloc[0].upper()
-            second_row = sub_df.iloc[1]
-            account_global = str(second_row['Account Global'])
-            date_str = second_row['Payment Date']
-            if isinstance(date_str, str):
-                month = datetime.strptime(date_str, "%d/%m/%Y").month
-            else:
-                month = date_str.month
-
-            expected_code = PAYMENT_DICT.get(payment_mean, (None, None))[1]
-            if not (
-                account_global.startswith("511")
-                and len(account_global) >= 6
-                and account_global[3] == str(expected_code)
-                and account_global[-2:] == f"{month:02d}"
-            ):
-                sublogs.append(f"❌ Invoice {inv} : Account Global '{account_global}' doesn't match payment '{payment_mean}' rules for month {month:02d}")
-                is_ok = False
-        except Exception as e:
-            sublogs.append(f"❌ Invoice {inv} : Erreur lecture règle payment → {e}")
-            is_ok = False
-
-        # Rule C
-        for _, row in sub_df.iterrows():
-            if row['Account Client'] == 411000 and row['Account Global'] == "411-NO MEMBER ACCOUNT":
-                sublogs.append(f"❌ Invoice {inv} : Account Global is '411-NO MEMBER ACCOUNT' for 411000 client")
-                is_ok = False
-                break
-
-        if is_ok:
-            logs.append(f"✅ Invoice {inv} : OK")
-        else:
-            logs.extend(sublogs)
-            error = True
-    return logs, error
-
-
 def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
     """
     Si pour une facture: Debit != Credit, et qu'il existe:
@@ -91,7 +33,8 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
     alors on applique:
       1) Colonne d'index 0 -> 'AM' (toutes les lignes de la facture)
       2) 'Account Global' 5112XX -> 5113XX (conserve les 2 derniers digits)
-      3) Si une ligne a 'Account Global' vide, on ajoute à son 'Debit' la commission (Credit de 627510)
+      3) Ajouter la commission au 'Debit' (ligne AG vide, sinon client 411000, sinon première ligne sans crédit)
+      4) Aligner 'Payment Mean' sur 'AMEX' pour éviter une alerte de règle B
     """
     out = df.copy()
 
@@ -127,21 +70,20 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
 
         out.loc[idxs, "Account Global"] = out.loc[idxs, "Account Global"].apply(_map_5112_to_5113)
 
+        # 4) aligner Payment Mean → AMEX (pour cohérence de la règle B)
+        if "Payment Mean" in out.columns:
+            out.loc[idxs, "Payment Mean"] = "AMEX"
+
         # 3) ajouter la commission au 'Debit'
         ag_invoice = out.loc[idxs, "Account Global"]
         blank_mask = ag_invoice.isna() | (ag_invoice.astype(str).str.strip() == "")
-        target_idx = None
-
-        # 3a) priorité: une ligne avec Account Global vide
         if blank_mask.any():
             target_idx = ag_invoice[blank_mask].index[0]
         else:
-            # 3b) sinon: la ligne client (Account Client == 411000) si présente
             cand_411 = out.loc[idxs][out.loc[idxs, "Account Client"] == 411000].index
             if len(cand_411) > 0:
                 target_idx = cand_411[0]
             else:
-                # 3c) sinon: première ligne sans crédit (souvent côté débit)
                 cand_nocredit = out.loc[idxs][pd.to_numeric(out.loc[idxs, "Credit"], errors="coerce").fillna(0) == 0].index
                 target_idx = cand_nocredit[0] if len(cand_nocredit) > 0 else idxs[0]
 
@@ -150,24 +92,95 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
             cur = 0.0
         out.loc[target_idx, "Debit"] = round(float(cur) + credit_627, 2)
 
-
     return out
 
+def check_invoices(df):
+    logs = []
+    error = False
+
+    # ✅ Appliquer la correction AMEX AVANT contrôle
+    corrected_df = apply_cb_to_amex_fix(df.copy())
+
+    invoices = df['Invoice #'].unique()
+    for inv in invoices:
+        sub_orig = df[df['Invoice #'] == inv]
+        sub = corrected_df[corrected_df['Invoice #'] == inv]
+
+        debit_sum_orig = round(sub_orig['Debit'].sum(), 2)
+        credit_sum_orig = round(sub_orig['Credit'].sum(), 2)
+        debit_sum = round(sub['Debit'].sum(), 2)
+        credit_sum = round(sub['Credit'].sum(), 2)
+
+        sublogs = []
+        is_ok = True
+
+        # A) Équilibre après correction ?
+        corrected = (debit_sum_orig != credit_sum_orig) and (debit_sum == credit_sum)
+        if debit_sum != credit_sum:
+            sublogs.append(f"❌ Invoice {inv} : Debit ≠ Credit ({debit_sum} ≠ {credit_sum})")
+            is_ok = False
+
+        # B) Vérification format Account Global vs Payment Mean/mois (sur DF corrigé)
+        try:
+            payment_mean = sub['Payment Mean'].iloc[0].upper()
+            second_row = sub.iloc[1]
+            account_global = str(second_row['Account Global'])
+            date_str = second_row['Payment Date']
+            if isinstance(date_str, str):
+                month = datetime.strptime(date_str, "%d/%m/%Y").month
+            else:
+                month = date_str.month
+
+            expected_code = PAYMENT_DICT.get(payment_mean, (None, None))[1]
+            if not (
+                account_global.startswith("511")
+                and len(account_global) >= 6
+                and account_global[3] == str(expected_code)
+                and account_global[-2:] == f"{month:02d}"
+            ):
+                sublogs.append(
+                    f"❌ Invoice {inv} : Account Global '{account_global}' doesn't match payment '{payment_mean}' rules for month {month:02d}"
+                )
+                is_ok = False
+        except Exception as e:
+            sublogs.append(f"❌ Invoice {inv} : Erreur lecture règle payment → {e}")
+            is_ok = False
+
+        # C) 411000 vs '411-NO MEMBER ACCOUNT' (sur DF corrigé)
+        for _, row in sub.iterrows():
+            if row['Account Client'] == 411000 and row['Account Global'] == "411-NO MEMBER ACCOUNT":
+                sublogs.append(
+                    f"❌ Invoice {inv} : Account Global is '411-NO MEMBER ACCOUNT' for 411000 client"
+                )
+                is_ok = False
+                break
+
+        if is_ok:
+            if corrected:
+                logs.append(f"🛠️ Invoice {inv} : auto-correction AMEX appliquée (CB→AM, 5112xx→5113xx, commission ajoutée).")
+            else:
+                logs.append(f"✅ Invoice {inv} : OK")
+        else:
+            logs.extend(sublogs)
+            error = True
+
+    # 👉 renvoyer aussi le DF corrigé
+    return logs, error, corrected_df
 
 def transform_for_download(df):
     logs = []
     df = df.copy()
-    
-    # 1. Échanger colonne J et B (Payment Mean avec Account Global)
+
+    # 1) Échanger les valeurs entre 'Date' et 'Payment Date'
     df[['Date', 'Payment Date']] = df[['Payment Date', 'Date']]
     logs.append("🔁 Colonnes 'Date' et 'Payment Date' échangées.")
 
-    # 2. Si Account Client = 411000, échanger avec Account Global
+    # 2) Si Account Client = 411000, échanger avec Account Global
     mask = df['Account Client'] == 411000
     df.loc[mask, ['Account Client', 'Account Global']] = df.loc[mask, ['Account Global', 'Account Client']].values
     logs.append("🔁 Inversion 'Account Client' et 'Account Global' pour les lignes 411000.")
 
-    # 3. Supprimer les colonnes J,K,L (Payment Mean, Payment Date, Comment)
+    # 3) Supprimer 'Payment Mean', 'Date', 'Comment'
     df.drop(columns=['Payment Mean', 'Date', 'Comment'], inplace=True)
     logs.append("🗑️ Colonnes 'Payment Mean', 'Date', 'Comment' supprimées.")
 
@@ -196,14 +209,14 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
 def run_encaissements():
     st.title("🔍 Contrôle des écritures comptables - Encaissements")
 
-    uploaded_file = st.file_uploader("📤 Upload ton fichier Excel (format tableau)", type=["xlsx", "xls", "csv"],key="uploader_encaissements_v2")
+    uploaded_file = st.file_uploader("📤 Upload ton fichier Excel (format tableau)", type=["xlsx", "xls", "csv"], key="uploader_encaissements_v2")
 
     # Init des flags d'état
     if "modifs_validees" not in st.session_state:
         st.session_state["modifs_validees"] = False
     if "df_source_encaissements" not in st.session_state and uploaded_file is not None:
         df_init = safe_read_excel(uploaded_file, header_row=1)
-        # Nettoyage de la colonne Name (comportement initial conservé)
+        # Nettoyage de la colonne Name
         df_init['Name'] = df_init['Name'].astype(str).apply(clean_name)
         st.success("🧽 Colonne 'Name' nettoyée (conservation avant le '-').")
         st.session_state["df_source_encaissements"] = df_init.copy()
@@ -214,11 +227,11 @@ def run_encaissements():
 
         # Recalcul des logs si nécessaire (ou première fois)
         if "controle_logs" not in st.session_state:
-            logs, has_errors = check_invoices(df_current.copy())
+            logs, has_errors, df_after = check_invoices(df_current.copy())
             st.session_state["controle_logs"] = {
                 "logs": logs,
                 "has_errors": has_errors,
-                "df": df_current.copy()
+                "df": df_after.copy()
             }
         else:
             logs = st.session_state["controle_logs"]["logs"]
@@ -229,15 +242,9 @@ def run_encaissements():
         for log in st.session_state["controle_logs"]["logs"]:
             st.markdown(log)
 
-        # Cas sans erreurs → export direct (comportement d’origine conservé)
+        # Cas sans erreurs → export direct
         if not st.session_state["controle_logs"]["has_errors"]:
-            # AVANT
-            # df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"])
-
-            # APRES
-            df_fixed = apply_cb_to_amex_fix(st.session_state["controle_logs"]["df"])
-            df_export, export_logs = transform_for_download(df_fixed)
-
+            df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"].copy())
             st.success("✅ Toutes les vérifications sont OK.")
             buf = dataframe_to_excel_bytes(df_export)
             st.download_button(
@@ -252,22 +259,13 @@ def run_encaissements():
         # Cas avec erreurs → édition “411-NO MEMBER ACCOUNT” + relance
         else:
             df_checked = st.session_state["controle_logs"]["df"].copy()
-
-            # ✅ AJOUT
-            df_checked = apply_cb_to_amex_fix(df_checked)
-            st.session_state["controle_logs"]["df"] = df_checked
-
             df_errors = df_checked[df_checked['Account Global'] == "411-NO MEMBER ACCOUNT"]
 
-            # 🔄 NOUVEAU: si aucun enregistrement à corriger, ne pas afficher l'alerte ni l'éditeur
+            # 🔄 Si aucun enregistrement à corriger, on exporte directement le DF corrigé
             if df_errors.empty:
                 st.success("🎉 Aucune ligne avec '411-NO MEMBER ACCOUNT' à corriger.")
-
-                # Préparer l'export avec les 3 modifications
-
                 df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"].copy())
 
-                # Un seul bouton qui télécharge directement le fichier modifié
                 buf = dataframe_to_excel_bytes(df_export)
                 st.download_button(
                     "📤 Exporter le fichier excel corrigé",
@@ -275,12 +273,13 @@ def run_encaissements():
                     file_name="encaissements_corrigés.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
+                for l in export_logs:
+                    st.info(l)
 
             else:
                 st.warning("⚠️ Il reste des lignes avec '411-NO MEMBER ACCOUNT'. Corrige-les ci-dessous.")
 
-                # ==== ⬇️ API (via secrets) — drop-in replacement for encaissements ⬇️ ====
-                # ==== ⬇️ API (corrigée) — encaissements ⬇️ ====
+                # ==== ⬇️ API CRM (inchangée) ⬇️ ====
                 import requests
                 from datetime import datetime, date
 
@@ -304,7 +303,6 @@ def run_encaissements():
                             return None
 
                 def _crm_base_url() -> str:
-                    # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
                     return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
 
                 @st.cache_data(show_spinner=False, ttl=1800)
@@ -312,7 +310,6 @@ def run_encaissements():
                     base = _crm_base_url()
                     auth_url = f"{base}/api/appMember/concierge/login"
                     payload = {"email": st.secrets["crm"]["email"], "password": st.secrets["crm"]["password"]}
-
                     try:
                         r = requests.post(auth_url, json=payload, timeout=30)
                     except requests.RequestException as e:
@@ -320,47 +317,35 @@ def run_encaissements():
                         with st.expander("Détails réseau (auth)"):
                             st.write({"auth_url": auth_url, "error": str(e)})
                         return None, None
-
                     ctype = (r.headers.get("content-type") or "").lower()
                     try:
                         body = r.json() if "application/json" in ctype else r.text
                     except ValueError:
                         body = r.text
-
                     if r.status_code != 200 or not isinstance(body, dict) or not body.get("success"):
                         st.error(f"❌ Auth KO (HTTP {r.status_code}).")
                         with st.expander("Détails réponse (auth)"):
                             st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
                         return None, None
-
                     concierge_hash = str(body.get("ConciergeHash", "")).strip()
-                    api_token     = str(body.get("ApiToken", "")).strip()
+                    api_token = str(body.get("ApiToken", "")).strip()
                     if not concierge_hash or not api_token:
                         st.error("❌ Auth KO (Hash/Token manquants).")
                         with st.expander("Détails réponse (auth)"):
                             st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
                         return None, None
-
                     return concierge_hash, api_token
 
                 def push_compte_tiers_to_crm(invoice_number: str, value: str, timeout: float = 15.0):
-                    """
-                    POST /api/myagency/controller/accounting/{ConciergeHash}
-                    Header: ApiToken
-                    + Ajoute 'date' (YYYY-MM-DD) si Payment Date est dispo dans df_source_encaissements
-                    """
                     concierge_hash, api_token = _crm_login_prod()
                     if not concierge_hash or not api_token:
                         return None, "auth_failed"
-
                     url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
                     headers = {
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                         "ApiToken": api_token,
                     }
-
-                    # Récupère la date de paiement depuis la source, selon 'Invoice #'
                     iso_date = None
                     try:
                         src = st.session_state.get("df_source_encaissements")
@@ -370,7 +355,6 @@ def run_encaissements():
                                 iso_date = _to_iso_date(sub.iloc[0]["Payment Date"])
                     except Exception:
                         iso_date = None
-
                     payload = {
                         "payload": {
                             "InvoiceNumber": str(invoice_number).strip(),
@@ -379,9 +363,8 @@ def run_encaissements():
                             "value": str(value).strip(),
                         }
                     }
-                    if iso_date:  # n’ajoute la date que si elle est valide
+                    if iso_date:
                         payload["payload"]["date"] = iso_date
-
                     try:
                         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                         ctype = (resp.headers.get("content-type") or "").lower()
@@ -389,14 +372,12 @@ def run_encaissements():
                         return resp.status_code, body
                     except requests.RequestException as e:
                         return None, f"Request error: {e}"
-                # ==== ⬆️ FIN API corrigée ⬆️ ====
-
-                # ==== ⬆️ FIN remplacement API encaissements ⬆️ ====
+                # ==== ⬆️ FIN API CRM (inchangée) ⬆️ ====
 
                 # Tableau éditable des paires (Name, Account Global) uniques
                 unique_names = (
                     df_errors
-                    .sort_values("Invoice #")  # facultatif : assure quel "premier" tu veux garder
+                    .sort_values("Invoice #")
                     .drop_duplicates(subset=["Name", "Account Global"], keep="first")
                     [["Name", "Account Global", "Invoice #"]]
                 )
@@ -414,23 +395,19 @@ def run_encaissements():
                     # Mise à jour de la source et préparation relance
                     st.session_state["df_source_encaissements"] = df_to_update
                     st.session_state["modifs_validees"] = True
-                    st.session_state.pop("controle_logs", None)  # supprimer anciens logs avant relance
+                    st.session_state.pop("controle_logs", None)
 
-                    # 2) PUSH des modifs vers le CRM pour chaque facture éditée
+                    # PUSH vers le CRM pour chaque facture éditée
                     api_logs = []
                     with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
                         for _, row in edited_df.iterrows():
                             invoice_number = str(row["Invoice #"]).strip()
                             compte_value = str(row["Account Global"]).strip()
-                            # même normalisation que local
                             if compte_value == "411":
                                 compte_value = "411-NO MEMBER ACCOUNT"
-
-                            # skip si facture vide
                             if not invoice_number:
                                 api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
                                 continue
-
                             status, body = push_compte_tiers_to_crm(invoice_number, compte_value)
                             if status and 200 <= status < 300:
                                 api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status})")
@@ -441,20 +418,15 @@ def run_encaissements():
                         for line in api_logs:
                             st.write(line)
 
-
                     st.success("✅ Modifications enregistrées. Clique sur « Relancer le contrôle ».")
 
-                # Bouton de relance visible uniquement après validation
                 if st.session_state["modifs_validees"]:
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("🔁 Relancer le contrôle"):
-                            # Purge et recalcul au prochain passage
                             st.session_state.pop("controle_logs", None)
                             st.session_state["modifs_validees"] = False
                             st.rerun()
-
-                    # Optionnel : si après validation il n’y a plus d’erreurs, proposer export (sera géré après relance)
                     with col2:
                         st.info("Après relance, si tout est OK, un bouton d’export apparaîtra ici automatiquement.")
     else:
