@@ -25,27 +25,15 @@ def clean_name(name):
     return name.split('-')[0].strip()
 
 def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Si pour une facture: Debit != Credit, et qu'il existe:
-      - une ligne AG=627510 (commission)
-      - une ligne AG=511207
-    ET que Credit(627510) == 3% * Credit(511207),
-    alors on applique:
-      1) Colonne d'index 0 -> 'AM' (toutes les lignes de la facture)
-      2) 'Account Global' 5112XX -> 5113XX (conserve les 2 derniers digits)
-      3) Ajouter la commission au 'Debit' (ligne AG vide, sinon client 411000, sinon première ligne sans crédit)
-      4) Aligner 'Payment Mean' sur 'AMEX' pour éviter une alerte de règle B
-    """
     out = df.copy()
 
     for inv, g in out.groupby("Invoice #"):
         dsum = round(float(g["Debit"].sum()), 2)
         csum = round(float(g["Credit"].sum()), 2)
         if dsum == csum:
-            continue  # rien à faire si déjà équilibré
+            continue  # déjà équilibré
 
         ag_str = g["Account Global"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
-
         credit_627 = round(float(g.loc[ag_str == "627510", "Credit"].sum()), 2)
         credit_511207 = round(float(g.loc[ag_str == "511207", "Credit"].sum()), 2)
 
@@ -58,10 +46,10 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
         idxs = g.index
         first_col = out.columns[0]
 
-        # 1) passer la 1ère colonne à 'AM' pour toute la facture
+        # 1) CB -> AM (colonne index 0)
         out.loc[idxs, first_col] = "AM"
 
-        # 2) transformer 5112XX -> 5113XX
+        # 2) 5112XX -> 5113XX
         def _map_5112_to_5113(x):
             s = str(x).strip()
             s = re.sub(r"\.0$", "", s)
@@ -70,7 +58,7 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
 
         out.loc[idxs, "Account Global"] = out.loc[idxs, "Account Global"].apply(_map_5112_to_5113)
 
-        # 4) aligner Payment Mean → AMEX (pour cohérence de la règle B)
+        # 2bis) aligner aussi Payment Mean -> AMEX pour cohérence de la règle B
         if "Payment Mean" in out.columns:
             out.loc[idxs, "Payment Mean"] = "AMEX"
 
@@ -94,33 +82,34 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
+
 def check_invoices(df):
     logs = []
     error = False
 
-    # ✅ Appliquer la correction AMEX AVANT contrôle
+    # ✅ appliquer la correction AMEX avant de contrôler
     corrected_df = apply_cb_to_amex_fix(df.copy())
 
     invoices = df['Invoice #'].unique()
     for inv in invoices:
         sub_orig = df[df['Invoice #'] == inv]
-        sub = corrected_df[corrected_df['Invoice #'] == inv]
+        sub      = corrected_df[corrected_df['Invoice #'] == inv]
 
-        debit_sum_orig = round(sub_orig['Debit'].sum(), 2)
+        debit_sum_orig  = round(sub_orig['Debit'].sum(), 2)
         credit_sum_orig = round(sub_orig['Credit'].sum(), 2)
-        debit_sum = round(sub['Debit'].sum(), 2)
-        credit_sum = round(sub['Credit'].sum(), 2)
+        debit_sum       = round(sub['Debit'].sum(), 2)
+        credit_sum      = round(sub['Credit'].sum(), 2)
 
         sublogs = []
         is_ok = True
 
-        # A) Équilibre après correction ?
+        # A) équilibre après correction ?
         corrected = (debit_sum_orig != credit_sum_orig) and (debit_sum == credit_sum)
         if debit_sum != credit_sum:
             sublogs.append(f"❌ Invoice {inv} : Debit ≠ Credit ({debit_sum} ≠ {credit_sum})")
             is_ok = False
 
-        # B) Vérification format Account Global vs Payment Mean/mois (sur DF corrigé)
+        # B) règle format Account Global vs Payment Mean/mois (sur DF corrigé)
         try:
             payment_mean = sub['Payment Mean'].iloc[0].upper()
             second_row = sub.iloc[1]
@@ -138,9 +127,7 @@ def check_invoices(df):
                 and account_global[3] == str(expected_code)
                 and account_global[-2:] == f"{month:02d}"
             ):
-                sublogs.append(
-                    f"❌ Invoice {inv} : Account Global '{account_global}' doesn't match payment '{payment_mean}' rules for month {month:02d}"
-                )
+                sublogs.append(f"❌ Invoice {inv} : Account Global '{account_global}' doesn't match payment '{payment_mean}' rules for month {month:02d}")
                 is_ok = False
         except Exception as e:
             sublogs.append(f"❌ Invoice {inv} : Erreur lecture règle payment → {e}")
@@ -149,9 +136,7 @@ def check_invoices(df):
         # C) 411000 vs '411-NO MEMBER ACCOUNT' (sur DF corrigé)
         for _, row in sub.iterrows():
             if row['Account Client'] == 411000 and row['Account Global'] == "411-NO MEMBER ACCOUNT":
-                sublogs.append(
-                    f"❌ Invoice {inv} : Account Global is '411-NO MEMBER ACCOUNT' for 411000 client"
-                )
+                sublogs.append(f"❌ Invoice {inv} : Account Global is '411-NO MEMBER ACCOUNT' for 411000 client")
                 is_ok = False
                 break
 
@@ -164,8 +149,8 @@ def check_invoices(df):
             logs.extend(sublogs)
             error = True
 
-    # 👉 renvoyer aussi le DF corrigé
     return logs, error, corrected_df
+
 
 def transform_for_download(df):
     logs = []
