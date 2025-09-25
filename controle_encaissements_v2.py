@@ -81,6 +81,64 @@ def check_invoices(df):
             error = True
     return logs, error
 
+
+def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Si pour une facture: Debit != Credit, et qu'il existe:
+      - une ligne AG=627510 (commission)
+      - une ligne AG=511207
+    ET que Credit(627510) == 3% * Credit(511207),
+    alors on applique:
+      1) Colonne d'index 0 -> 'AM' (toutes les lignes de la facture)
+      2) 'Account Global' 5112XX -> 5113XX (conserve les 2 derniers digits)
+      3) Si une ligne a 'Account Global' vide, on ajoute à son 'Debit' la commission (Credit de 627510)
+    """
+    out = df.copy()
+
+    for inv, g in out.groupby("Invoice #"):
+        dsum = round(float(g["Debit"].sum()), 2)
+        csum = round(float(g["Credit"].sum()), 2)
+        if dsum == csum:
+            continue  # rien à faire si déjà équilibré
+
+        ag_str = g["Account Global"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip()
+
+        credit_627 = round(float(g.loc[ag_str == "627510", "Credit"].sum()), 2)
+        credit_511207 = round(float(g.loc[ag_str == "511207", "Credit"].sum()), 2)
+
+        # condition 3%
+        if credit_627 == 0 or credit_511207 == 0:
+            continue
+        if round(credit_511207 * 0.03, 2) != credit_627:
+            continue
+
+        idxs = g.index
+        first_col = out.columns[0]
+
+        # 1) passer la 1ère colonne à 'AM' pour toute la facture
+        out.loc[idxs, first_col] = "AM"
+
+        # 2) transformer 5112XX -> 5113XX
+        def _map_5112_to_5113(x):
+            s = str(x).strip()
+            s = re.sub(r"\.0$", "", s)
+            m = re.fullmatch(r"5112(\d{2})", s)
+            return f"5113{m.group(1)}" if m else x
+
+        out.loc[idxs, "Account Global"] = out.loc[idxs, "Account Global"].apply(_map_5112_to_5113)
+
+        # 3) ajouter la commission au 'Debit' de la (première) ligne AG vide
+        ag_invoice = out.loc[idxs, "Account Global"]
+        blank_idx = ag_invoice[ag_invoice.isna() | (ag_invoice.astype(str).str.strip() == "")].index
+        if len(blank_idx) > 0:
+            cur = pd.to_numeric(out.loc[blank_idx[0], "Debit"], errors="coerce")
+            if pd.isna(cur):
+                cur = 0.0
+            out.loc[blank_idx[0], "Debit"] = round(float(cur) + credit_627, 2)
+
+    return out
+
+
 def transform_for_download(df):
     logs = []
     df = df.copy()
@@ -158,7 +216,13 @@ def run_encaissements():
 
         # Cas sans erreurs → export direct (comportement d’origine conservé)
         if not st.session_state["controle_logs"]["has_errors"]:
-            df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"])
+            # AVANT
+            # df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"])
+
+            # APRES
+            df_fixed = apply_cb_to_amex_fix(st.session_state["controle_logs"]["df"])
+            df_export, export_logs = transform_for_download(df_fixed)
+
             st.success("✅ Toutes les vérifications sont OK.")
             buf = dataframe_to_excel_bytes(df_export)
             st.download_button(
@@ -181,6 +245,7 @@ def run_encaissements():
 
                 # Préparer l'export avec les 3 modifications
                 df_export = st.session_state["df_source_encaissements"].copy()
+                df_export = apply_cb_to_amex_fix(df_export)
 
                 # 1) Échanger les valeurs entre les colonnes par position (index 1 et 10)
                 if df_export.shape[1] > 10:
