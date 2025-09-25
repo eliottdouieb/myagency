@@ -249,7 +249,6 @@ def run_encaissements():
                 st.success("🎉 Aucune ligne avec '411-NO MEMBER ACCOUNT' à corriger.")
 
                 # Préparer l'export avec les 3 modifications
-                df_export = st.session_state["controle_logs"]["df"].copy()
 
                 df_export, export_logs = transform_for_download(st.session_state["controle_logs"]["df"].copy())
 
