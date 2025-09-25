@@ -237,6 +237,11 @@ def run_encaissements():
         # Cas avec erreurs → édition “411-NO MEMBER ACCOUNT” + relance
         else:
             df_checked = st.session_state["controle_logs"]["df"].copy()
+
+            # ✅ AJOUT
+            df_checked = apply_cb_to_amex_fix(df_checked)
+            st.session_state["controle_logs"]["df"] = df_checked
+
             df_errors = df_checked[df_checked['Account Global'] == "411-NO MEMBER ACCOUNT"]
 
             # 🔄 NOUVEAU: si aucun enregistrement à corriger, ne pas afficher l'alerte ni l'éditeur
@@ -245,11 +250,10 @@ def run_encaissements():
 
                 # Préparer l'export avec les 3 modifications
                 df_export = st.session_state["df_source_encaissements"].copy()
-                df_export = apply_cb_to_amex_fix(df_export)
 
-                # 1) Échanger les valeurs entre les colonnes par position (index 1 et 10)
-                if df_export.shape[1] > 10:
-                    df_export.iloc[:, [1, 10]] = df_export.iloc[:, [10, 1]].to_numpy()
+                # # 1) Échanger les valeurs entre les colonnes par position (index 1 et 10)
+                # if df_export.shape[1] > 10:
+                #     df_export.iloc[:, [1, 10]] = df_export.iloc[:, [10, 1]].to_numpy()
 
                 # 2) Lorsque Account Client = 411000, inverser Account Client et Account Global (échange de valeurs)
                 if "Account Client" in df_export.columns and "Account Global" in df_export.columns:
@@ -260,6 +264,13 @@ def run_encaissements():
                 cols_to_drop = [c for c in ["Payment Mean", "Date", "Comment"] if c in df_export.columns]
                 if cols_to_drop:
                     df_export.drop(columns=cols_to_drop, inplace=True)
+
+                # Mettre 'Payment Date' en 2e colonne
+                if "Payment Date" in df_export.columns:
+                    cols = list(df_export.columns)
+                    cols.insert(1, cols.pop(cols.index("Payment Date")))
+                    df_export = df_export[cols]
+
 
                 # Un seul bouton qui télécharge directement le fichier modifié
                 buf = dataframe_to_excel_bytes(df_export)
