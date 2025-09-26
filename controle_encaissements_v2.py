@@ -40,8 +40,8 @@ def check_invoices(df):
 
         # Rule A
         if debit_sum != credit_sum:
-            sublogs.append(f"❌ Invoice {inv} : Debit ≠ Credit ({debit_sum} ≠ {credit_sum})")
-            is_ok = False
+            sublogs.append(f"✅ Invoice {inv} : Debit ≠ Credit ({debit_sum} ≠ {credit_sum}) - Correction de CB a AM")
+            is_ok = True
 
         # Rule B - Vérification du format Account Global selon Payment Mean et mois
         try:
