@@ -153,7 +153,7 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                 resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
                 ctype = (resp.headers.get("content-type") or "").lower()
                 body = resp.json() if "application/json" in ctype else resp.text
-                return resp.status_code, body
+                return resp.status_code, body, resp.text
             except requests.RequestException as e:
                 return None, f"Request error: {e}"
         # ==== ⬆️ FIN DU BLOC REMPLACÉ ⬆️ ====
@@ -202,11 +202,11 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                         api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
                         continue
 
-                    status, body = push_compte_tiers_to_crm(invoice_number,date_1, compte_value)
+                    status, body, text_1 = push_compte_tiers_to_crm(invoice_number,date_1, compte_value)
                     if status and 200 <= status < 300:
-                        api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status})")
+                        api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status}), {text_1}")
                     else:
-                        api_logs.append(f"❌ CRM ko — Facture {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+                        api_logs.append(f"❌ CRM ko — Facture {invoice_number} → {compte_value} (HTTP {status}) | {body}, {text_1}")
 
             with st.expander("Détails des mises à jour CRM"):
                 for line in api_logs:
