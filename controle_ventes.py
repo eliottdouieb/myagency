@@ -249,6 +249,17 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
 def run_interface():
     st.title("📈 Contrôle automatique des écritures de ventes")
 
+    if "df_source_ventes" in st.session_state:
+        st.divider()
+        st.markdown("### 📤 Télécharger le fichier actuel (même s’il reste des erreurs)")
+        buf_export_anytime = dataframe_to_excel_bytes(st.session_state["df_source_ventes"])
+        st.download_button(
+            "📥 Télécharger maintenant",
+            buf_export_anytime,
+            "ventes_exportées.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     if "df_source_ventes" not in st.session_state:
         uploaded = st.file_uploader("Importe ton fichier Excel des ventes", type=["xlsx"], key="uploader_ventes")
         if uploaded:
