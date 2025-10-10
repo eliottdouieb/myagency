@@ -4,9 +4,7 @@ from io import BytesIO, StringIO
 from controle_ventes_logic import run_ventes_checks_console
 from xlsx2csv import Xlsx2csv
 
-# ✅ Lecture robuste de fichier Exce
-
-# ─── Logger léger ──────────────────────────────────────────────────────────────
+# ✅ Lecture robuste de fichier Excel
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
         return pd.read_excel(uploaded, header=header_row, engine="openpyxl")
@@ -18,7 +16,6 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
         Xlsx2csv(BytesIO(uploaded.read()), outputencoding="utf-8").convert(csv_buffer)
         csv_buffer.seek(0)
         return pd.read_csv(csv_buffer, header=header_row)
-
 
 # ✅ Conversion pour téléchargement Excel
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
@@ -38,6 +35,19 @@ def _get_invoice_date_from_source(invoice_number: str):
                 return sub.iloc[0][col]
     return None
 
+# ✅ DF à exporter en toute circonstance (corrigé si dispo, sinon source, sinon modèle)
+def _get_df_to_export_anytime() -> pd.DataFrame:
+    if "controle_logs" in st.session_state and "df" in st.session_state["controle_logs"]:
+        return st.session_state["controle_logs"]["df"]
+    if "df_source_ventes" in st.session_state:
+        return st.session_state["df_source_ventes"]
+    # Modèle minimal si aucun fichier n'est encore importé
+    cols = [
+        "#", "Date", "Payment Date", "Name",
+        "Account General", "Account Client",
+        "Debit", "Credit", "Analytics", "Payment Mean"
+    ]
+    return pd.DataFrame(columns=cols)
 
 # ✅ Interface principale
 def afficher_interface(df: pd.DataFrame, force_recontrole=False):
@@ -59,12 +69,35 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         nb_ko = st.session_state["controle_logs"]["nb_ko"]
         df_checked = st.session_state["controle_logs"]["df"]
 
+    # 📥 Bouton de téléchargement TOUJOURS visible (en-tête + sidebar)
+    df_anytime = _get_df_to_export_anytime()
+    buf_anytime = dataframe_to_excel_bytes(df_anytime)
+    col_dl1, col_dl2 = st.columns([1, 2], vertical_alignment="center")
+    with col_dl1:
+        st.download_button(
+            "📥 Télécharger maintenant",
+            buf_anytime,
+            "ventes_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="dl_top_anytime"
+        )
+    with st.sidebar:
+        st.markdown("### 📥 Export rapide")
+        st.download_button(
+            "Télécharger (toujours dispo)",
+            dataframe_to_excel_bytes(_get_df_to_export_anytime()),
+            "ventes_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_sidebar_anytime"
+        )
+
     # 📋 Affichage des logs
     st.subheader("📝 Logs")
     st.code("\n".join(st.session_state["controle_logs"]["logs"]), language="text")
 
     # ⚠️ Factures KO
-    if nb_ko:
+    if st.session_state["controle_logs"]["nb_ko"]:
         st.warning("Des ventes KO subsistent. Modifie les tableaux puis clique sur « Valider les corrections ».")
         st.markdown("### ✏️ Modifie les comptes tiers ci-dessous")
 
@@ -79,38 +112,30 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
         import requests
         from datetime import datetime, date
 
-
         def _to_iso_date(v) -> str | None:
             if v is None or (isinstance(v, float) and pd.isna(v)):
                 return None
             if isinstance(v, (datetime, date, pd.Timestamp)):
                 return pd.to_datetime(v).strftime("%Y-%m-%d")
             s = str(v).strip()
-            # essais directs
             for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
                 try:
                     return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
                 except ValueError:
                     pass
-            # essai pandas (dayfirst pour '27/06/2025')
             try:
                 return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
             except Exception:
-                # sérial Excel éventuel
                 try:
                     return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
                 except Exception:
                     return None
 
         def _crm_base_url() -> str:
-            # Lit la PROD depuis secrets, fallback sur l’URL officielle PROD
             return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
 
-        @st.cache_data(show_spinner=False, ttl=1800)  # cache le login ~30 min
+        @st.cache_data(show_spinner=False, ttl=1800)
         def _crm_login_prod() -> tuple[str, str]:
-            """
-            Login PROD → retourne (ConciergeHash, ApiToken)
-            """
             auth_url = f"{_crm_base_url()}/api/appMember/concierge/login"
             payload = {
                 "email": st.secrets["crm"]["email"],
@@ -127,14 +152,8 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                 raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
             return concierge_hash, api_token
 
-        def push_compte_tiers_to_crm(invoice_number: str,date_1: str, value: str, timeout: float = 15.0):
-            """
-            Envoie la mise à jour en PROD :
-            POST /api/myagency/controller/accounting/{ConciergeHash}
-            Header: ApiToken
-            """
+        def push_compte_tiers_to_crm(invoice_number: str, date_1: str, value: str, timeout: float = 15.0):
             concierge_hash, api_token = _crm_login_prod()
-
             url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
             headers = {
                 "Content-Type": "application/json",
@@ -143,10 +162,10 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             payload = {
                 "payload": {
                     "InvoiceNumber": str(invoice_number).strip(),
-                    "type": "member",   # client
-                    "field": "vente",   # compte client 411
+                    "type": "member",
+                    "field": "vente",
                     "value": str(value).strip(),
-                    "date": _to_iso_date(date_1),  # décommente si tu dois envoyer une date côté ventes
+                    "date": _to_iso_date(date_1),
                 }
             }
             try:
@@ -158,7 +177,6 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                 return None, f"Request error: {e}"
         # ==== ⬆️ FIN DU BLOC REMPLACÉ ⬆️ ====
 
-
         # -----------------------------------------------------------------------------------
         # Ton UI existante + l'appel API par ligne
         edited_df = st.data_editor(
@@ -166,7 +184,6 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             key="factures_ko_global",
             hide_index=False,
         )
-
 
         # ✅ Application des corrections
         if st.button("✅ Valider les corrections"):
@@ -193,16 +210,14 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
                     invoice_number = str(row["#"]).strip()
                     date_1 = str(row["Date"]).strip()
                     compte_value = str(row["Account Client"]).strip()
-                    # même normalisation que local
                     if compte_value == "411":
                         compte_value = "411-NO MEMBER ACCOUNT"
 
-                    # skip si facture vide
                     if not invoice_number:
                         api_logs.append(f"⚠️ Facture sans numéro — ligne ignorée.")
                         continue
 
-                    status, body, text_1 = push_compte_tiers_to_crm(invoice_number,date_1, compte_value)
+                    status, body, text_1 = push_compte_tiers_to_crm(invoice_number, date_1, compte_value)
                     if status and 200 <= status < 300:
                         api_logs.append(f"✅ CRM ok — Facture {invoice_number} → {compte_value} (HTTP {status}), {text_1}")
                     else:
@@ -211,55 +226,48 @@ def afficher_interface(df: pd.DataFrame, force_recontrole=False):
             with st.expander("Détails des mises à jour CRM"):
                 for line in api_logs:
                     st.write(line)
-            st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
+            st.success("✅ Modifications enregistrées. Clique sur « Relancer le contrôle » ou exporte immédiatement via le bouton ci-dessus.")
 
-        # ✅ Affichage conditionnel des boutons après validation
+        # 🔁 Relance du contrôle (le bouton d’export est de toute façon toujours dispo)
         if st.session_state["modifs_validees"]:
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button("🔁 Relancer le contrôle"):
-                    st.session_state.pop("controle_logs", None)
-                    st.session_state["modifs_validees"] = False
-                    afficher_interface(st.session_state["df_source_ventes"], force_recontrole=True)
-                    st.stop()
-
-            with col2:
-                if "controle_logs" in st.session_state and not st.session_state["controle_logs"]["factures_ko"]:
-                    buf = dataframe_to_excel_bytes(st.session_state["df_source_ventes"])
-                    st.download_button(
-                        "📥 Télécharger le fichier corrigé",
-                        buf,
-                        "ventes_corrigées.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    )
+            if st.button("🔁 Relancer le contrôle"):
+                st.session_state.pop("controle_logs", None)
+                st.session_state["modifs_validees"] = False
+                afficher_interface(st.session_state["df_source_ventes"], force_recontrole=True)
+                st.stop()
 
     else:
-        # ✅ Tout est OK
+        # ✅ Tout est OK (le bouton d'export est déjà affiché en haut/side)
         st.success("🎉 Plus aucune vente KO. Tu peux exporter le fichier corrigé.")
-        buf = dataframe_to_excel_bytes(df_checked)
-        st.download_button(
-            "📥 Télécharger le fichier corrigé",
-            buf,
-            "ventes_corrigées.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
 
 # ▶️ Logique de lancement
 def run_interface():
     st.title("📈 Contrôle automatique des écritures de ventes")
 
-    if "df_source_ventes" in st.session_state:
-        st.divider()
-        st.markdown("### 📤 Télécharger le fichier actuel (même s’il reste des erreurs)")
-        buf_export_anytime = dataframe_to_excel_bytes(st.session_state["df_source_ventes"])
+    # 📥 Bouton d'export toujours disponible AVANT/pendant/après l'import (en-tête + sidebar gérés dans afficher_interface)
+    if "df_source_ventes" not in st.session_state:
+        # Proposer un export de modèle même avant upload
+        df_anytime = _get_df_to_export_anytime()
+        buf_anytime = dataframe_to_excel_bytes(df_anytime)
         st.download_button(
             "📥 Télécharger maintenant",
-            buf_export_anytime,
-            "ventes_exportées.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            buf_anytime,
+            "ventes_export.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="dl_top_initial"
         )
+        with st.sidebar:
+            st.markdown("### 📥 Export rapide")
+            st.download_button(
+                "Télécharger (toujours dispo)",
+                dataframe_to_excel_bytes(_get_df_to_export_anytime()),
+                "ventes_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_sidebar_initial"
+            )
 
+    # 🔼 Import / affichage
     if "df_source_ventes" not in st.session_state:
         uploaded = st.file_uploader("Importe ton fichier Excel des ventes", type=["xlsx"], key="uploader_ventes")
         if uploaded:
