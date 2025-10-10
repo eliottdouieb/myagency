@@ -15,13 +15,16 @@ PAYMENT_DICT = {
 
 
 
-# ✅ DF à exporter en toute circonstance
+# ✅ DF à exporter en toute circonstance (ACHATS)
 def _get_df_to_export_anytime() -> pd.DataFrame:
     if "controle_logs" in st.session_state and "df" in st.session_state["controle_logs"]:
         return st.session_state["controle_logs"]["df"]
-    if "df_source_encaissements" in st.session_state:
-        return st.session_state["df_source_encaissements"]
-    return pd.DataFrame(columns=["Invoice #", "Date", "Payment Date", "Name", "Account Global", "Account Client", "Debit", "Credit", "Analytics", "Payment Mean"])
+    if "df_source" in st.session_state:
+        return st.session_state["df_source"]
+    return pd.DataFrame(columns=[
+        "n° de piece", "Date Facture", "Compte Généraux", "Compte Tiers",
+        "Débit(€)", "Crédit (€)", "Libelle", "Concierge", "Analytique", "Code"
+    ])
 
 
 # ✅ Barre latérale export toujours dispo
@@ -216,7 +219,7 @@ def run_encaissements():
     st.title("🔍 Contrôle des écritures comptables - Encaissements")
 
     show_sidebar_download() # bouton dispo tout le temps à gauche
-    
+
     uploaded_file = st.file_uploader("📤 Upload ton fichier Excel (format tableau)", type=["xlsx", "xls", "csv"], key="uploader_encaissements_v2")
 
     # Init des flags d'état
