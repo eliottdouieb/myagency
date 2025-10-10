@@ -64,14 +64,16 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
         csv_buffer.seek(0)
         return pd.read_csv(csv_buffer, header=header_row)
     
-# ✅ DF à exporter en toute circonstance
+# ✅ DF à exporter en toute circonstance (ACHATS)
 def _get_df_to_export_anytime() -> pd.DataFrame:
     if "controle_logs" in st.session_state and "df" in st.session_state["controle_logs"]:
         return st.session_state["controle_logs"]["df"]
-    if "df_source_encaissements" in st.session_state:
-        return st.session_state["df_source_encaissements"]
-    return pd.DataFrame(columns=["Invoice #", "Date", "Payment Date", "Name", "Account Global", "Account Client", "Debit", "Credit", "Analytics", "Payment Mean"])
-
+    if "df_source" in st.session_state:
+        return st.session_state["df_source"]
+    return pd.DataFrame(columns=[
+        "n° de piece", "Date Facture", "Compte Généraux", "Compte Tiers",
+        "Débit(€)", "Crédit (€)", "Libelle", "Concierge", "Analytique", "Code"
+    ])
     
 def show_sidebar_download():
     with st.sidebar:
