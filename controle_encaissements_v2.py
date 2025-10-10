@@ -13,6 +13,29 @@ PAYMENT_DICT = {
     "CASH": ("CA", 5),
 }
 
+
+
+# ✅ DF à exporter en toute circonstance
+def _get_df_to_export_anytime() -> pd.DataFrame:
+    if "controle_logs" in st.session_state and "df" in st.session_state["controle_logs"]:
+        return st.session_state["controle_logs"]["df"]
+    if "df_source_encaissements" in st.session_state:
+        return st.session_state["df_source_encaissements"]
+    return pd.DataFrame(columns=["Invoice #", "Date", "Payment Date", "Name", "Account Global", "Account Client", "Debit", "Credit", "Analytics", "Payment Mean"])
+
+
+# ✅ Barre latérale export toujours dispo
+def show_sidebar_download():
+    with st.sidebar:
+        st.markdown("### 📅 Export permanent")
+        st.download_button(
+        "📅 Télécharger maintenant",
+        dataframe_to_excel_bytes(_get_df_to_export_anytime()),
+        "encaissements_export.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_sidebar_anytime"
+        )
+
 # ✅ Conversion pour téléchargement Excel
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf = BytesIO()
@@ -192,6 +215,8 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
 def run_encaissements():
     st.title("🔍 Contrôle des écritures comptables - Encaissements")
 
+    show_sidebar_download() # bouton dispo tout le temps à gauche
+    
     uploaded_file = st.file_uploader("📤 Upload ton fichier Excel (format tableau)", type=["xlsx", "xls", "csv"], key="uploader_encaissements_v2")
 
     # Init des flags d'état
