@@ -63,6 +63,18 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
         Xlsx2csv(BytesIO(uploaded.read()), outputencoding="utf-8").convert(csv_buffer)
         csv_buffer.seek(0)
         return pd.read_csv(csv_buffer, header=header_row)
+    
+def show_sidebar_download():
+    with st.sidebar:
+        st.markdown("### 📅 Export permanent")
+        st.download_button(
+        "📅 Télécharger maintenant",
+        dataframe_to_excel_bytes(_get_df_to_export_anytime()),
+        "encaissements_export.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_sidebar_anytime"
+        )
+
 
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf = BytesIO()
@@ -73,6 +85,9 @@ def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
 
 def run_interface():
     st.title("📊 Contrôle automatique des écritures d'achats")
+
+    show_sidebar_download() # bouton dispo tout le temps à gauche
+
 
     uploaded = st.file_uploader("Importe ton fichier Excel des achats", type=["xlsx"])
 
