@@ -332,8 +332,8 @@ def run_interface():
                         & (df["n° de piece"] == r["n° de piece"])
                     ].index
                     if not idx.empty:
-                        df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]] = \
-                            r[["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]].values
+                        df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]] = \
+                            r[["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]].values
                         
                 # 2) PUSH des modifs vers le CRM pour chaque facture éditée
                     api_logs = []
