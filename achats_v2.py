@@ -12,24 +12,99 @@ import streamlit as st
 from io import BytesIO
 
 
+##API
+import requests
+from datetime import datetime, date
 
+def _to_iso_date(v) -> str | None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (datetime, date, pd.Timestamp)):
+        return pd.to_datetime(v).strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+        except Exception:
+            return None
 
-# ===============================
-# ====== TES OPTIONS PANDAS =====
-# ===============================
-# pd.set_option('display.max_rows', None)
-# pd.set_option('display.max_columns', None)
+def _crm_base_url() -> str:
+    # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
+    return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
 
-# ======================================
-# ====== (TON CODE D'ORIGINE) ==========
-# ====== NE RIEN CHANGER CI-DESSOUS ====
-# ======================================
+@st.cache_data(show_spinner=False, ttl=1800)
+def _crm_login_prod() -> tuple[str | None, str | None]:
+    base = _crm_base_url()
+    auth_url = f"{base}/api/appMember/concierge/login"
+    payload = {"email": st.secrets["crm"]["email"], "password": st.secrets["crm"]["password"]}
+    try:
+        r = requests.post(auth_url, json=payload, timeout=30)
+    except requests.RequestException as e:
+        st.error("❌ Échec réseau (auth).")
+        with st.expander("Détails réseau (auth)"):
+            st.write({"auth_url": auth_url, "error": str(e)})
+        return None, None
+    ctype = (r.headers.get("content-type") or "").lower()
+    try:
+        body = r.json() if "application/json" in ctype else r.text
+    except ValueError:
+        body = r.text
+    if r.status_code != 200 or not isinstance(body, dict) or not body.get("success"):
+        st.error(f"❌ Auth KO (HTTP {r.status_code}).")
+        with st.expander("Détails réponse (auth)"):
+            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
+        return None, None
+    concierge_hash = str(body.get("ConciergeHash", "")).strip()
+    api_token = str(body.get("ApiToken", "")).strip()
+    if not concierge_hash or not api_token:
+        st.error("❌ Auth KO (Hash/Token manquants).")
+        with st.expander("Détails réponse (auth)"):
+            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
+        return None, None
+    return concierge_hash, api_token
 
-# csv_buffer = StringIO()
-# Xlsx2csv("Export achats  MYBACKOFFICE (1).xlsx", outputencoding="utf-8").convert(csv_buffer)
-# csv_buffer.seek(0)
-
-# df = pd.read_csv(csv_buffer,skiprows=1)
+def push_compte_tiers_to_crm(num_de_piece: str, value: str,date:str, timeout: float = 15.0):
+    """
+    POST /api/myagency/controller/accounting/{ConciergeHash}
+    Header: ApiToken
+    + Ajoute 'date' (YYYY-MM-DD) si Payment Date est dispo 
+    """
+    concierge_hash, api_token = _crm_login_prod()
+    if not concierge_hash or not api_token:
+        return None, "auth_failed"
+    url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "ApiToken": api_token,
+    }
+    # Récupère la date de paiement depuis la source, selon 'Invoice #'
+    iso_date = None
+    payload = {
+        "payload": {
+            "InvoiceNumber": str(num_de_piece).strip(),
+            "type": "member",
+            "field": "achat",
+            "value": str(value).strip(),
+            "date":date
+        }
+    }
+    if iso_date:  # n’ajoute la date que si elle est valide
+        payload["payload"]["date"] = iso_date
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        body = resp.json() if "application/json" in ctype else resp.text
+        return resp.status_code, body
+    except requests.RequestException as e:
+        return None, f"Request error: {e}"
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
@@ -55,9 +130,6 @@ def show_sidebar_download():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_sidebar_anytime"
             )
-
-
-
 
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf = BytesIO()
@@ -148,8 +220,6 @@ def check_mauvais_emplacement_debit(df):
     else:
         return False
 
-
-
 def check_lignes_comptables(df):
     num_piece=df["n° de piece"].unique()
     log_generale=[]
@@ -195,105 +265,12 @@ def check_lignes_comptables(df):
                 df.loc[index_cond, 'Débit(€)'] = df.loc[index_cond, 'Crédit (€)']*(-1)
                 df.loc[index_cond, 'Crédit (€)']  = credit_tmp * (-1)
 
-            # if check_mauvais_emplacement(df_provisoire)==True:
-            #     mask = a[a['Débit(€)']!=0].any()
-            #     # Inversion des valeurs
-            #     df.loc[mask, ["Débit(€)", "Crédit (€)"]] = df.loc[mask, ["Crédit (€)", "Débit(€)"]].values
-
         if log_ko==False:
              log_generale.append(f"✅ Achat {i} : OK , {log_piece}")
         if log_ko==True:
             log_generale.append(f"❌ Achat {i} : KO , {log_piece}")
 
     return log_generale,Compte_Tiers_invalide,achats_ko
-
-# ======================================
-# ====== (FIN TON CODE ORIGINE) ========
-# ======================================
-
-
-# ======================================
-# ========== COUCHE STREAMLIT ==========
-# ========== (AJOUT SANS MODIFIER TON CODE)
-# ======================================
-
-
-# st.set_page_config(page_title="Contrôle Achats — MyBackOffice", page_icon="📊", layout="wide")
-# st.title("📊 Contrôle automatique des écritures d'achats")
-
-# st.markdown("Téléverse ton export Excel puis lance les contrôles. Ton code d’analyse est utilisé **tel quel**.")
-
-# # Uploader
-# uploaded = st.file_uploader("Importe ton fichier Excel des achats (.xlsx)", type=["xlsx"])
-
-# # Pour conserver l'état du df courant (celui que tes fonctions modifient)
-# if "df_state" not in st.session_state:
-#     st.session_state.df_state = None
-
-# def _xlsx_to_df(file) -> pd.DataFrame:
-#     """Reproduit exactement ta logique xlsx2csv -> read_csv(skiprows=1)."""
-#     buf = StringIO()
-#     Xlsx2csv(file, outputencoding="utf-8").convert(buf)
-#     buf.seek(0)
-#     return pd.read_csv(buf, skiprows=1)
-
-# col1, col2 = st.columns([1,1])
-
-# with col1:
-#     if uploaded is not None and st.button("🚀 Lancer les contrôles"):
-#         # Charger dans df_state selon TA logique (sans modifier ton code)
-#         st.session_state.df_state = _xlsx_to_df(uploaded)
-#         # Exécuter les étapes que tu fais déjà (exactement les mêmes appels)
-#         remplie_numero_piece_manquant(st.session_state.df_state)
-#         suppression_445660_dans_Compte_tiers(st.session_state.df_state)
-#         logs, nb_invalides = check_lignes_comptables(st.session_state.df_state)
-
-#         st.success(f"Contrôles terminés — Compte Tiers invalide: {nb_invalides}")
-#         st.subheader("📝 Logs")
-#         st.code("\n".join(logs), language="text")
-
-# with col2:
-#     st.subheader("👀 Aperçu du DataFrame (après contrôles)")
-#     if st.session_state.df_state is not None:
-#         st.dataframe(st.session_state.df_state, use_container_width=True, height=500)
-#     else:
-#         st.info("Aucun fichier chargé pour l’instant.")
-
-# st.divider()
-# st.subheader("📥 Export")
-
-# def _df_to_excel_bytes(df_export: pd.DataFrame) -> BytesIO:
-#     buf = BytesIO()
-#     # tu utilises xlsxwriter by default ; si env ancien ça peut warning,
-#     # mais on n'altère pas ton code métier, on fait juste l'export.
-#     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-#         df_export.to_excel(writer, index=False)
-#     buf.seek(0)
-#     return buf
-
-# colA, colB = st.columns(2)
-# with colA:
-#     if st.session_state.df_state is not None:
-#         st.download_button(
-#             "⬇️ Télécharger Excel (xlsx)",
-#             data=_df_to_excel_bytes(st.session_state.df_state),
-#             file_name="achats_corriges.xlsx",
-#             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#             use_container_width=True
-#         )
-# with colB:
-#     if st.session_state.df_state is not None:
-#         st.download_button(
-#             "⬇️ Télécharger CSV",
-#             data=st.session_state.df_state.to_csv(index=False).encode("utf-8"),
-#             file_name="achats_corriges.csv",
-#             mime="text/csv",
-#             use_container_width=True
-#         )
-
-# st.caption("Astuce : si vous voyez un avertissement `xlsxwriter` trop ancien, mettez à jour `xlsxwriter` (>= 1.4.3) ou utilisez l’export CSV.")
-
-
 
 
 def run_interface():
@@ -342,7 +319,7 @@ def run_interface():
             rerun_key = f"rerun_{st.session_state.ko_cycle}"
 
             edited = st.data_editor(
-                df_unique[["n° de piece", "Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]],
+                df_unique[["n° de piece", "Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]],
                 key=editor_key,
                 hide_index=True,
             )
@@ -357,6 +334,30 @@ def run_interface():
                     if not idx.empty:
                         df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]] = \
                             r[["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]].values
+                        
+                # 2) PUSH des modifs vers le CRM pour chaque facture éditée
+                    api_logs = []
+                    with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
+                        for _, row in edited.iterrows():
+                            invoice_number = str(row["n° de piece"]).strip()
+                            compte_value = str(row["Compte Tiers"]).strip()
+                            date = _to_iso_date(str(row["Date Facture"]).strip())
+                            
+
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                continue
+
+                            status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
+                            if status and 200 <= status < 300:
+                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+
+                    with st.expander("Détails des mises à jour CRM"):
+                        for line in api_logs:
+                            st.write(line)
 
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
@@ -368,49 +369,3 @@ def run_interface():
                     st.success("Le contrôle a été relancé ✅")
                     st.experimental_rerun()  # force un rerender propre
 
-        #         # ── AJOUT: push API vers CRM par n° de pièce ─────────────────────
-        #         api_logs = []
-        #         with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
-        #             for _, r in edited.iterrows():
-        #                 piece = str(r["n° de piece"]).strip()
-        #                 mask_piece = (df["n° de piece"].astype(str).str.strip() == piece) & (df["Compte Généraux"] == "401000")
-        #                 if not mask_piece.any():
-        #                     api_logs.append(f"⚠️ Pièce {piece}: aucune ligne 401000 trouvée, ignorée.")
-        #                     continue
-
-        #                 date_facture_piece = df.loc[mask_piece, "Date Facture"].iloc[0] if "Date Facture" in df.columns else ""
-        #                 date_iso = _to_date_iso(date_facture_piece)
-        #                 inv_num = build_invoice_number_from_piece_and_date(piece, date_facture_piece)
-        #                 compte_value = str(r.get("Compte Tiers", "")).strip()
-
-        #                 if not inv_num or not date_iso or not compte_value:
-        #                     api_logs.append(
-        #                         f"⚠️ Pièce {piece}: infos incomplètes — InvoiceNumber='{inv_num}', date='{date_iso}', Compte='{compte_value}'"
-        #                     )
-        #                     continue
-
-        #                 status, body = push_compte_tiers_to_crm(inv_num, compte_value, date_iso)
-        #                 if status and 200 <= status < 300:
-        #                     api_logs.append(f"✅ CRM ok — Pièce {piece} → {compte_value} | Invoice {inv_num} | date {date_iso} (HTTP {status})")
-        #                 else:
-        #                     api_logs.append(f"❌ CRM ko — Pièce {piece} → {compte_value} | Invoice {inv_num} | date {date_iso} (HTTP {status}) | {body}")
-
-        #         with st.expander("Détails des mises à jour CRM"):
-        #             for line in api_logs:
-        #                 st.write(line)
-        #         # ────────────────────────────────────────────────────────────────
-
-                # if st.button("🔁 Relancer le contrôle"):
-                #     log_generale,Compte_Tiers_invalide,achats_ko=check_lignes_comptables(df)
-                #     # st.session_state.logs = logs  # tu sauvegardes si tu veux les réafficher
-                #     st.success("Le contrôle a été relancé ✅")
-
-        # else:
-        #     st.success("🎉 Plus aucun achat KO. Tu peux exporter le fichier corrigé.")
-        #     buf = dataframe_to_excel_bytes(df)
-        #     st.download_button(
-        #         "📥 Télécharger le fichier corrigé",
-        #         buf,
-        #         "achats_corriges.xlsx",
-        #         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        #     )
