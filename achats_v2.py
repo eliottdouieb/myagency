@@ -15,87 +15,57 @@ from io import BytesIO
 # ====== API CRM HELPERS (secrets-aware) ======
 
 
-def _crm_cfg():
-    try:
-        cfg = st.secrets["crm"]
-        base_url = cfg["base_url"].rstrip("/")
-        email = cfg["email"]
-        password = cfg["password"]
-        return base_url, email, password
-    except Exception as e:
-        raise RuntimeError(
-            "Secrets CRM manquants. Ajoute dans .streamlit/secrets.toml :\n"
-            "[crm]\nbase_url=\"https://preprod.api-concierge.mybackoffice.fr\"\n"
-            "email=\"...\"\npassword=\"...\"\n"
-        ) from e
+import requests, streamlit as st
+from datetime import datetime
 
-def _endpoints():
-    base_url, *_ = _crm_cfg()
-    AUTH_URL = f"{base_url}/api/appMember/concierge/login"
-    ACCOUNTING_URL_TMPL = f"{base_url}/api/myagency/controller/accounting/{{ConciergeHash}}"
-    return AUTH_URL, ACCOUNTING_URL_TMPL
+def _crm_cfg():
+    cfg = st.secrets["crm"]
+    base_url = cfg["base_url"].rstrip("/")
+    email    = cfg["email"]
+    password = cfg["password"]
+    return base_url, email, password
 
 def crm_login(force: bool = False):
-    """Login CRM (met en cache ApiToken/ConciergeHash dans st.session_state)."""
     if (not force) and "ApiToken" in st.session_state and "ConciergeHash" in st.session_state:
         return st.session_state["ApiToken"], st.session_state["ConciergeHash"]
 
-    AUTH_URL, _ = _endpoints()
-    _, email, password = _crm_cfg()
-
-    resp = requests.post(AUTH_URL, json={"email": email, "password": password}, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    base_url, email, password = _crm_cfg()
+    auth_url = f"{base_url}/api/appMember/concierge/login"
+    r = requests.post(auth_url, json={"email": email, "password": password}, timeout=30)
+    r.raise_for_status()
+    data = r.json()
     if not data.get("success"):
         raise RuntimeError(f"Login failed: {data}")
+    st.session_state["ApiToken"]      = str(data.get("ApiToken","")).strip()
+    st.session_state["ConciergeHash"] = str(data.get("ConciergeHash","")).strip()
+    return st.session_state["ApiToken"], st.session_state["ConciergeHash"]
 
-    ApiToken = str(data.get("ApiToken", "")).strip()
-    ConciergeHash = str(data.get("ConciergeHash", "")).strip()
-    if not ApiToken or not ConciergeHash:
-        raise RuntimeError("Missing ApiToken/ConciergeHash in login response.")
-
-    st.session_state["ApiToken"] = ApiToken
-    st.session_state["ConciergeHash"] = ConciergeHash
-    return ApiToken, ConciergeHash
-
-def _to_iso_date(dt):
-    if dt is None:
+def _to_iso_date(x) -> str|None:
+    if x is None: return None
+    if isinstance(x, str):
+        for fmt in ("%Y-%m-%d","%d/%m/%Y","%d-%m-%Y","%Y/%m/%d"):
+            try: return datetime.strptime(x, fmt).strftime("%Y-%m-%d")
+            except ValueError: pass
         return None
-    if isinstance(dt, str):
-        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
-            try:
-                return datetime.strptime(dt, fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-        return None
-    try:
-        return dt.strftime("%Y-%m-%d")
-    except Exception:
-        return None
+    try: return x.strftime("%Y-%m-%d")
+    except Exception: return None
 
-def push_accounting_update(invoice_number: str, new_value: str,
+def push_accounting_update(invoice_number: str, new_compte_tiers: str,
                            *, type_: str = "member", field_: str = "achat",
-                           date_iso: str | None = None):
-    """Envoie 1 update au CRM (changement de compte tiers d'un achat)."""
+                           date_iso: str|None = None):
     ApiToken, ConciergeHash = crm_login()
-    _, ACCOUNTING_URL_TMPL = _endpoints()
-    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
-
-    payload = {
-        "payload": {
-            "InvoiceNumber": str(invoice_number),
-            "type": type_,           # "member" (par défaut, comme ton appel qui marche) ou "partner"
-            "field": field_,         # "achat"
-            "value": str(new_value)  # ex: "4010000234"
-        }
-    }
+    base_url, _, _ = _crm_cfg()
+    url = f"{base_url}/api/myagency/controller/accounting/{ConciergeHash}"
+    payload = {"payload":{
+        "InvoiceNumber": str(invoice_number),
+        "type":  type_,
+        "field": field_,
+        "value": str(new_compte_tiers)
+    }}
     if date_iso:
         payload["payload"]["date"] = date_iso
-
-    headers = {"Content-Type": "application/json", "ApiToken": ApiToken}
-    r = requests.post(url, json=payload, headers=headers, timeout=20)
-    return r
-
+    headers = {"Content-Type":"application/json","ApiToken":ApiToken}
+    return requests.post(url, json=payload, headers=headers, timeout=20)
 
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
@@ -321,25 +291,28 @@ def run_interface():
             )
 
             if st.button("✅ Valider les corrections", key=validate_key):
-                # Clé d’alignement sûre: (Libelle, n° de piece)
+                # Clé d’alignement
                 key_cols = ["Libelle", "n° de piece"]
-                cols_edit = ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge"]
 
+                # Construire les 2 vues indexées (avant/après)
                 df_unique_keyed = df_unique.set_index(key_cols)
-                edited_keyed = edited.set_index(key_cols)
+                edited_keyed    = edited.set_index(key_cols)
 
-                # Lignes réellement modifiées
+                # Colonnes éditées
+                cols_edit = ["Compte Tiers","Débit(€)","Crédit (€)","Libelle","Concierge"]
+
+                # Détecter les lignes modifiées
                 changed_idx = []
                 for k in edited_keyed.index:
                     if k not in df_unique_keyed.index:
                         changed_idx.append(k)
                     else:
-                        before = df_unique_keyed.loc[k, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Concierge"]].to_dict()
-                        after  = edited_keyed.loc[k, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Concierge"]].to_dict()
-                        if any(before[c] != after[c] for c in after.keys()):
+                        before = df_unique_keyed.loc[k, ["Compte Tiers","Débit(€)","Crédit (€)","Concierge"]].to_dict()
+                        after  = edited_keyed.loc[k, ["Compte Tiers","Débit(€)","Crédit (€)","Concierge"]].to_dict()
+                        if any(before[c] != after[c] for c in after):
                             changed_idx.append(k)
 
-                # Applique les modifs dans df
+                # Appliquer les modifs dans df source
                 for (lib, piece) in changed_idx:
                     r = edited_keyed.loc[(lib, piece)]
                     idx = df[
@@ -348,27 +321,23 @@ def run_interface():
                         (df["n° de piece"] == piece)
                     ].index
                     if not idx.empty:
-                        df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit(€)", "Libelle", "Concierge"]] = \
-                            r[["Compte Tiers", "Débit(€)", "Crédit(€)", "Libelle", "Concierge"]].values
+                        df.loc[idx, cols_edit] = r[cols_edit].values
 
                 # Push CRM si "Compte Tiers" a changé
-                pushes_ok, pushes_ko = 0, 0
+                pushes_ok = pushes_ko = 0
                 for (lib, piece) in changed_idx:
                     old_ct = df_unique_keyed.loc[(lib, piece), "Compte Tiers"] if (lib, piece) in df_unique_keyed.index else None
                     new_ct = edited_keyed.loc[(lib, piece), "Compte Tiers"]
                     if str(old_ct) != str(new_ct):
-                        # Cherche la date facture si dispo (optionnel)
-                        date_iso = None
-                        if "Date Facture" in df.columns:
-                            row0 = df[(df["Libelle"] == lib) & (df["n° de piece"] == piece)].head(1)
-                            if not row0.empty:
-                                date_iso = _to_iso_date(row0.iloc[0]["Date Facture"])
+                        # date facture (optionnelle)
+                        row0 = df[(df["Libelle"] == lib) & (df["n° de piece"] == piece)].head(1)
+                        date_iso = _to_iso_date(row0.iloc[0]["Date Facture"]) if not row0.empty else None
 
                         try:
-                            # "member" = cohérent avec ton exemple qui marche ; mets "partner" si nécessaire selon les cas
+                            # "member" comme ton appel de référence ; mets "partner" si besoin
                             resp = push_accounting_update(
                                 invoice_number=piece,
-                                new_value=new_ct,
+                                new_compte_tiers=new_ct,
                                 type_="member",
                                 field_="achat",
                                 date_iso=date_iso
