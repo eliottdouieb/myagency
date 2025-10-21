@@ -333,22 +333,20 @@ def run_interface():
                             df.loc[idx, ["Compte Tiers"]] = r[["Compte Tiers"]].values
                         api_logs = []
                         with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
-                            for _, row in rows_changed_only.iterrows():
-                                invoice_number = str(row["n° de piece"]).strip()
-                                compte_value = str(row["Compte Tiers"]).strip()
-                                date = _to_iso_date(str(row["Date Facture"]).strip())
+                            invoice_number = str(r["n° de piece"]).strip()
+                            compte_value = str(r["Compte Tiers"]).strip()
+                            date = _to_iso_date(str(r["Date Facture"]).strip())
                                 
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                continue
 
-                                # skip si facture vide
-                                if not invoice_number:
-                                    api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
-                                    continue
-
-                                status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
-                                if status and 200 <= status < 300:
-                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
-                                else:
-                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+                            status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
+                            if status and 200 <= status < 300:
+                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
 
                         with st.expander("Détails des mises à jour CRM"):
                             for line in api_logs:
