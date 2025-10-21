@@ -324,7 +324,7 @@ def run_interface():
 
             if st.button("✅ Valider les corrections", key=validate_key):
                 for _, r in edited.iterrows():
-                    st.write(r)
+                    st.write(r['Compte Tiers'])
                     idx = df[
                         (df["Libelle"] == r["Libelle"]) 
                         & (df["Compte Généraux"] == 401000)
