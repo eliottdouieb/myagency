@@ -38,7 +38,7 @@ def _to_iso_date(v) -> str | None:
 def _crm_base_url() -> str:
     # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
     return (st.secrets["crm"].get("base_url", "https://api-concierge.myxperience.io/")).rstrip("/")
-
+    #hey
 @st.cache_data(show_spinner=False, ttl=1800)
 def _crm_login_prod() -> tuple[str | None, str | None]:
     base = _crm_base_url()
