@@ -11,11 +11,6 @@ import requests
 import streamlit as st
 from io import BytesIO
 
-
-##API
-import requests
-from datetime import datetime, date
-
 def _to_iso_date(v) -> str | None:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
@@ -94,76 +89,7 @@ def run_api_crm(num_de_piece,value,date):
             "body": resp.text,
         }
 
-
-
-def _crm_base_url() -> str:
-    # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
-    return (st.secrets["crm"].get("base_url", "https://api-concierge.myxperience.io/")).rstrip("/")
-    #hey
 @st.cache_data(show_spinner=False, ttl=1800)
-def _crm_login_prod() -> tuple[str | None, str | None]:
-    base = _crm_base_url()
-    auth_url = f"{base}/api/appMember/concierge/login"
-    payload = {"email": st.secrets["crm"]["email"], "password": st.secrets["crm"]["password"]}
-    try:
-        r = requests.post(auth_url, json=payload, timeout=30)
-    except requests.RequestException as e:
-        st.error("❌ Échec réseau (auth).")
-        with st.expander("Détails réseau (auth)"):
-            st.write({"auth_url": auth_url, "error": str(e)})
-        return None, None
-    ctype = (r.headers.get("content-type") or "").lower()
-    try:
-        body = r.json() if "application/json" in ctype else r.text
-    except ValueError:
-        body = r.text
-    if r.status_code != 200 or not isinstance(body, dict) or not body.get("success"):
-        st.error(f"❌ Auth KO (HTTP {r.status_code}).")
-        with st.expander("Détails réponse (auth)"):
-            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
-        return None, None
-    concierge_hash = str(body.get("ConciergeHash", "")).strip()
-    api_token = str(body.get("ApiToken", "")).strip()
-    if not concierge_hash or not api_token:
-        st.error("❌ Auth KO (Hash/Token manquants).")
-        with st.expander("Détails réponse (auth)"):
-            st.write({"auth_url": auth_url, "status": r.status_code, "body": body})
-        return None, None
-    return concierge_hash, api_token
-
-def push_compte_tiers_to_crm(num_de_piece: str, value: str,date:str, timeout: float = 15.0):
-    """
-    POST /api/myagency/controller/accounting/{ConciergeHash}
-    Header: ApiToken
-    + Ajoute 'date' (YYYY-MM-DD) si Payment Date est dispo 
-    """
-    concierge_hash, api_token = _crm_login_prod()
-    if not concierge_hash or not api_token:
-        return None, "auth_failed"
-    url = f"{_crm_base_url()}/api/myagency/controller/accounting/{concierge_hash}"
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "ApiToken": api_token,
-    }
-    # Récupère la date de paiement depuis la source, selon 'Invoice #'
-    payload = {
-        "payload": {
-            "InvoiceNumber": str(num_de_piece).strip(),
-            "type": "partner",
-            "field": "achat",
-            "value": str(value).strip(),
-            "date":date
-        }
-    }
-
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-        ctype = (resp.headers.get("content-type") or "").lower()
-        body = resp.json() if "application/json" in ctype else resp.text
-        return resp.status_code, body
-    except requests.RequestException as e:
-        return None, f"Request error: {e}"
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     try:
@@ -197,9 +123,6 @@ def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf.seek(0)
     return buf
 
-def _get_df_to_export_anytime(df) -> pd.DataFrame:
-    return (df)
-    
 
 def inc(code: str) -> str:
         mois, num = code.split("-")
@@ -299,7 +222,7 @@ def check_lignes_comptables(df):
             df.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Crédit (€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Débit(€)'].sum()
             df_provisoire.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Débit(€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Crédit (€)'].sum()
             df_provisoire.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Crédit (€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Débit(€)'].sum()
-            log_piece.append(f"Achat {i}- Credit ou Debit omis")
+            log_piece.append(f"🔧 Achat {i}- Credit ou Debit omis")
 
         if check_credit_egale_debit(df_provisoire)==False:
             log_piece.append(f"Credit≠Debit {df_provisoire['Débit(€)'].sum()} -- {df_provisoire['Crédit (€)'].sum()}")
@@ -308,17 +231,17 @@ def check_lignes_comptables(df):
             if check_lignes_vides(df_provisoire)==False:
                 idx_a_supprimer = get_index_lignes_vides(df_provisoire)
                 df.drop(index=idx_a_supprimer,inplace=True)
-                log_piece.append(f"ligne vide supprime")
+                log_piece.append(f"🔧 ligne vide supprime")
 
             if check_mauvais_emplacement_credit(df_provisoire)==True:
-                log_piece.append(f"mauvais emplacement credit modifie")
+                log_piece.append(f" 🔧 mauvais emplacement credit modifie")
                 index_cond = df_provisoire[df_provisoire['Compte Généraux']!=401000].index[df_provisoire[df_provisoire['Compte Généraux']!=401000]['Crédit (€)'] != 0]
                 credit_tmp = df.loc[index_cond, 'Crédit (€)'].copy()
                 df.loc[index_cond, 'Crédit (€)'] = df.loc[index_cond, 'Débit(€)']*(-1)
                 df.loc[index_cond, 'Débit(€)']  = credit_tmp * (-1)
                 
             if check_mauvais_emplacement_debit(df_provisoire)==True:
-                log_piece.append(f"mauvais emplacement debit modifie")
+                log_piece.append(f"🔧 mauvais emplacement debit modifie")
                 index_cond = df_provisoire[df_provisoire['Compte Généraux']!=401000].index[df_provisoire[df_provisoire['Compte Généraux']!=401000]['Débit(€)'] != 0]
                 credit_tmp = df.loc[index_cond, 'Débit(€)'].copy()
                 df.loc[index_cond, 'Débit(€)'] = df.loc[index_cond, 'Crédit (€)']*(-1)
