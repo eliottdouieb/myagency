@@ -327,12 +327,10 @@ def run_interface():
                     idx = df[
                         (df["Libelle"] == r["Libelle"]) 
                         & (df["Compte Généraux"] == 401000)
-                        & (df["n° de piece"] == r["n° de piece"])
                     ].index
                     if not idx.empty:
-                        df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]] = \
-                            r[["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]].values
-                        
+                        df.loc[idx, ["Compte Tiers"]] = r[["Compte Tiers"]].values
+
                     # 2) PUSH des modifs vers le CRM uniquement pour les lignes réellement modifiées
                     changes = st.session_state.get(editor_key, {})
                     edited_rows_meta = (changes or {}).get("edited_rows", {})  # dict: {row_idx: {"col": new_val, ...}, ...}
