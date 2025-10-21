@@ -34,6 +34,67 @@ def _to_iso_date(v) -> str | None:
             return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
         except Exception:
             return None
+        
+def run_api_crm(num_de_piece,value,date):
+    BASE_URL = st.secrets["crm"]["base_url"]
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD =st.secrets["crm"]["password"]
+    if not PASSWORD:
+        raise RuntimeError("Missing CRM_PASSWORD. …")
+        
+    auth_payload = {"email": EMAIL, "password": PASSWORD}
+    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
+    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+        
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+        
+
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": num_de_piece,
+            "type": "partner",
+            "field": "achat",
+            "value": value,
+            "date":date
+        }
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken,
+    }
+
+    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+
+    # print("HTTP:", resp.status_code)
+    ctype = (resp.headers.get("content-type") or "").lower()
+    try:
+        return {
+            "status": resp.status_code,
+            "type": "Réponse JSON",
+            "body": resp.json() if "application/json" in ctype else resp.text,
+        }
+    except ValueError:
+        return {
+            "status": resp.status_code,
+            "type": "Réponse brute",
+            "body": resp.text,
+        }
+
+
 
 def _crm_base_url() -> str:
     # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
@@ -342,11 +403,11 @@ def run_interface():
                                 api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
                                 continue
 
-                            status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
-                            if status and 200 <= status < 300:
-                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
+                            result = run_api_crm(invoice_number, compte_value, date)
+                            if result["status"] and 200 <= result["status"]  < 300:
+                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] })")
                             else:
-                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | {result["body"] }")
 
                         with st.expander("Détails des mises à jour CRM"):
                             for line in api_logs:
