@@ -37,7 +37,7 @@ def _to_iso_date(v) -> str | None:
 
 def _crm_base_url() -> str:
     # Utilise tes secrets; fallback = préprod (comme ton code qui marche)
-    return (st.secrets["crm"].get("base_url", "https://preprod.api-concierge.mybackoffice.fr")).rstrip("/")
+    return (st.secrets["crm"].get("base_url", "https://api-concierge.myxperience.io/")).rstrip("/")
 
 @st.cache_data(show_spinner=False, ttl=1800)
 def _crm_login_prod() -> tuple[str | None, str | None]:
@@ -89,7 +89,7 @@ def push_compte_tiers_to_crm(num_de_piece: str, value: str,date:str, timeout: fl
     payload = {
         "payload": {
             "InvoiceNumber": str(num_de_piece).strip(),
-            "type": "member",
+            "type": "partner",
             "field": "achat",
             "value": str(value).strip(),
             "date":date
