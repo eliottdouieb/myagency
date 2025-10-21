@@ -86,7 +86,6 @@ def push_compte_tiers_to_crm(num_de_piece: str, value: str,date:str, timeout: fl
         "ApiToken": api_token,
     }
     # Récupère la date de paiement depuis la source, selon 'Invoice #'
-    iso_date = None
     payload = {
         "payload": {
             "InvoiceNumber": str(num_de_piece).strip(),
@@ -96,8 +95,7 @@ def push_compte_tiers_to_crm(num_de_piece: str, value: str,date:str, timeout: fl
             "date":date
         }
     }
-    if iso_date:  # n’ajoute la date que si elle est valide
-        payload["payload"]["date"] = iso_date
+
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
         ctype = (resp.headers.get("content-type") or "").lower()
@@ -335,10 +333,15 @@ def run_interface():
                         df.loc[idx, ["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]] = \
                             r[["Compte Tiers", "Débit(€)", "Crédit (€)", "Libelle", "Concierge","Date Facture"]].values
                         
-                # 2) PUSH des modifs vers le CRM pour chaque facture éditée
+                    # 2) PUSH des modifs vers le CRM uniquement pour les lignes réellement modifiées
+                    changes = st.session_state.get(editor_key, {})
+                    edited_rows_meta = (changes or {}).get("edited_rows", {})  # dict: {row_idx: {"col": new_val, ...}, ...}
+                    rows_idx = list(edited_rows_meta.keys())
+                    rows_changed_only = edited.iloc[rows_idx].copy()
+
                     api_logs = []
-                    with st.spinner("Mise à jour des comptes tiers dans le CRM..."):
-                        for _, row in edited.iterrows():
+                    with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                        for _, row in rows_changed_only.iterrows():
                             invoice_number = str(row["n° de piece"]).strip()
                             compte_value = str(row["Compte Tiers"]).strip()
                             date = _to_iso_date(str(row["Date Facture"]).strip())
