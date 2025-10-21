@@ -324,42 +324,35 @@ def run_interface():
 
             if st.button("✅ Valider les corrections", key=validate_key):
                 for _, r in edited.iterrows():
-                    st.write(r['Compte Tiers'])
-                    idx = df[
-                        (df["Libelle"] == r["Libelle"]) 
-                        & (df["Compte Généraux"] == 401000)
-                    ].index
-                    if not idx.empty:
-                        df.loc[idx, ["Compte Tiers"]] = r[["Compte Tiers"]].values
+                    if r['Compte Tiers'] != "???":
+                        idx = df[
+                            (df["Libelle"] == r["Libelle"]) 
+                            & (df["Compte Généraux"] == 401000)
+                        ].index
+                        if not idx.empty:
+                            df.loc[idx, ["Compte Tiers"]] = r[["Compte Tiers"]].values
+                        api_logs = []
+                        with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                            for _, row in rows_changed_only.iterrows():
+                                invoice_number = str(row["n° de piece"]).strip()
+                                compte_value = str(row["Compte Tiers"]).strip()
+                                date = _to_iso_date(str(row["Date Facture"]).strip())
+                                
 
-                    # 2) PUSH des modifs vers le CRM uniquement pour les lignes réellement modifiées
-                    changes = st.session_state.get(editor_key, {})
-                    edited_rows_meta = (changes or {}).get("edited_rows", {})  # dict: {row_idx: {"col": new_val, ...}, ...}
-                    rows_idx = list(edited_rows_meta.keys())
-                    rows_changed_only = edited.iloc[rows_idx].copy()
+                                # skip si facture vide
+                                if not invoice_number:
+                                    api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                    continue
 
-                    api_logs = []
-                    with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
-                        for _, row in rows_changed_only.iterrows():
-                            invoice_number = str(row["n° de piece"]).strip()
-                            compte_value = str(row["Compte Tiers"]).strip()
-                            date = _to_iso_date(str(row["Date Facture"]).strip())
-                            
+                                status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
+                                if status and 200 <= status < 300:
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
+                                else:
+                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
 
-                            # skip si facture vide
-                            if not invoice_number:
-                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
-                                continue
-
-                            status, body = push_compte_tiers_to_crm(invoice_number, compte_value, date)
-                            if status and 200 <= status < 300:
-                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {status})")
-                            else:
-                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {status}) | {body}")
-
-                    with st.expander("Détails des mises à jour CRM"):
-                        for line in api_logs:
-                            st.write(line)
+                        with st.expander("Détails des mises à jour CRM"):
+                            for line in api_logs:
+                                st.write(line)
 
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
