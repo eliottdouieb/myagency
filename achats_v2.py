@@ -232,6 +232,7 @@ def check_lignes_comptables(df):
                 idx_a_supprimer = get_index_lignes_vides(df_provisoire)
                 df.drop(index=idx_a_supprimer,inplace=True)
                 log_piece.append(f"🔧 ligne vide supprime")
+                #hey
 
             if check_mauvais_emplacement_credit(df_provisoire)==True:
                 log_piece.append(f" 🔧 mauvais emplacement credit modifie")
