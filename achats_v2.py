@@ -30,6 +30,26 @@ def _to_iso_date(v) -> str | None:
         except Exception:
             return None
         
+def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: str = "EUR") -> float:
+
+    # Conversion du symbole si nécessaire
+    try:
+        from_currency = currency_symbols[from_currency]
+        date_iso = _to_iso_date(date)
+        url = f"https://api.frankfurter.app/{date_iso}"
+        params = {"from": from_currency.upper(), "to": to_currency.upper()}
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        rate = data.get("rates", {}).get(to_currency.upper())
+        if rate is None:
+            raise ValueError(f"Taux introuvable dans la réponse: {data}")
+        return float(rate)
+    except:
+        return False
+
+        
 def run_api_crm(num_de_piece,value,date):
     BASE_URL = st.secrets["crm"]["base_url"]
     AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
@@ -124,6 +144,35 @@ def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     return buf
 
 
+currency_symbols = {
+    "€": "EUR",        # Euros
+    "$": "USD",        # Dollars américains
+    "£": "GBP",        # Livres sterling
+    "¥": "JPY",        # Yen japonais
+    "TBAT": "THB",     # Baht thaïlandais
+    "$AUD": "AUD",     # Dollar australien
+    "CHF": "CHF",      # Franc suisse
+    "$C": "CAD",        # Dollar canadien
+    "ILS": "ILS",      # Shekel israélien
+    "FT": "HUF",       # Forint hongrois
+    "IDR": "IDR",      # Roupie indonésienne
+    "INR": "INR",      # Roupie indienne
+    "ISK": "ISK",      # Couronne islandaise
+    "CNY": "CNY",      # Yuan chinois
+    "DKK": "DKK",      # Couronne danoise
+    "MRY": "MYR",      # Ringgit malaisien (erreur typographique dans CSV)
+    "NOK": "NOK",      # Couronne norvégienne
+    "SEK": "SEK",      # Couronne suédoise
+    "SGD": "SGD",      # Dollar de Singapour
+    "TRY": "TRY",      # Livre turque
+    "HKD": "HKD",      # Dollar de Hong Kong
+    "BRL": "BRL",      # Réal brésilien
+    "KRW": "KRW",      # Won sud-coréen
+    "MXN": "MXN"       # Peso mexicain
+}
+
+
+
 def inc(code: str) -> str:
         mois, num = code.split("-")
         return f"{mois}-{int(num)+1}"
@@ -150,6 +199,12 @@ def suppression_445660_dans_Compte_tiers(df):
     df.loc[mask_445, "Compte Tiers"] = np.nan
     return("✅ La colonne Compte Tiers ne comprend plus de 445660 mal placés.")
 
+
+def check_devise(df):
+    if ((df["Débit(€)"]==0).all()) & ((df["Crédit (€)"]==0).all()) & ((df["Devise"]!='€').all()) :
+        return True
+    else:
+        return False
 
 def check_credit_egale_debit(df):
     if math.floor((df["Débit(€)"].sum()* 100) / 100)==math.floor((df["Crédit (€)"].sum()* 100) / 100):
@@ -202,7 +257,11 @@ def check_mauvais_emplacement_debit(df):
     else:
         return False
 
+
+
 def check_lignes_comptables(df):
+    df['Débit(€)']=df['Débit(€)'].fillna(0)
+    df['Crédit (€)']=df['Crédit (€)'].fillna(0)
     num_piece=df["n° de piece"].unique()
     log_generale=[]
     Compte_Tiers_invalide=0
@@ -210,6 +269,23 @@ def check_lignes_comptables(df):
     for i in num_piece:
         log_piece=[]
         log_ko=False
+
+        df_provisoire=df[(df["n° de piece"]==i)]
+        if check_devise(df_provisoire):
+            if get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])!=False :
+                log_piece.append('Conversion de la devise effectue')
+                if df_provisoire.iloc[0]['Original Amount']>0:
+                    df.loc[df_provisoire.index[0],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                    df.loc[df_provisoire.index[1],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                    df.loc[df_provisoire.index[2],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                else:
+                    df.loc[df_provisoire.index[0],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                    df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                    df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+            else:
+                log_piece.append("Ce numero de piece a besoin d'une conversion de la devise manuelle")
+                log_ko=True
+
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
             log_piece.append("Compte Tiers invalide")
