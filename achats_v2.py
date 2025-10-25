@@ -275,7 +275,7 @@ def check_lignes_comptables(df):
             date_facture=df_provisoire.iloc[0]['Date Facture']
             devise=df_provisoire.iloc[0]['Devise']
             original_amount=df_provisoire.iloc[0]['Original Amount']
-            if get_conversion_rate_frankfurter(date_facture,df_provisoire.iloc[0]['Devise'])!=False :
+            if get_conversion_rate_frankfurter(date_facture,devise)!=False :
                 log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {get_conversion_rate_frankfurter(date_facture,devise)}, Montant : {original_amount}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
                     df.loc[df_provisoire.index[0],'Crédit (€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
@@ -294,7 +294,10 @@ def check_lignes_comptables(df):
             Compte_Tiers_invalide+=1
             log_ko=True
             achats_ko.append(i)
-
+        
+        if get_conversion_rate_frankfurter(date_facture,devise)==False:
+            continue
+        
         if check_oublie_credit_ou_debit(df_provisoire):
             df.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Débit(€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Crédit (€)'].sum()
             df.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Crédit (€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Débit(€)'].sum()
