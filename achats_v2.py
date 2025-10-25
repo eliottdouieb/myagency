@@ -284,7 +284,7 @@ def check_lignes_comptables(df):
                     df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
                     df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
             else:
-                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])}")
+                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])},{df_provisoire.iloc[0]['Devise']}")
                 log_ko=True
         # print('hey')
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
