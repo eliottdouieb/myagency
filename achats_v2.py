@@ -284,7 +284,10 @@ def check_lignes_comptables(df):
                     df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
                     df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
             else:
-                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])},{df_provisoire.iloc[0]['Devise']},{df_provisoire.iloc[0]['Date Facture']}")
+                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])},{ currency_symbols[df_provisoire.iloc[0]['Devise']]},{_to_iso_date(df_provisoire.iloc[0]['Date Facture'])}")
+# from_currency = currency_symbols[from_currency]
+#         date_iso = _to_iso_date(date)
+
                 log_ko=True
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
