@@ -270,11 +270,16 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["n° de piece"]==i)]
-        date_facture=df_provisoire.iloc[0]['Date Facture']
-        devise=df_provisoire.iloc[0]['Devise']
-        original_amount=df_provisoire.iloc[0]['Original Amount']
-        rate=get_conversion_rate_frankfurter(date_facture,devise)
         if check_devise(df_provisoire):
+            if check_compte_tiers_invalide(df_provisoire):
+                log_piece.append("Compte Tiers invalide")
+                Compte_Tiers_invalide+=1
+                log_ko=True
+                achats_ko.append(i)
+            date_facture=df_provisoire.iloc[0]['Date Facture']
+            devise=df_provisoire.iloc[0]['Devise']
+            original_amount=df_provisoire.iloc[0]['Original Amount']
+            rate=get_conversion_rate_frankfurter(date_facture,devise)
             if rate!=False :
                 log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {rate}, Montant : {original_amount}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
@@ -288,15 +293,13 @@ def check_lignes_comptables(df):
             else:
                 log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle ,  Devise : {devise}, Date : {date_facture}, Montant : {original_amount} ")
                 log_ko=True
+
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
             log_piece.append("Compte Tiers invalide")
             Compte_Tiers_invalide+=1
             log_ko=True
             achats_ko.append(i)
-        
-        if rate==False:
-            continue
         
         if check_oublie_credit_ou_debit(df_provisoire):
             df.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Débit(€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Crédit (€)'].sum()
