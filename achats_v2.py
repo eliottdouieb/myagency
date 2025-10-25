@@ -293,6 +293,11 @@ def check_lignes_comptables(df):
             else:
                 log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle ,  Devise : {devise}, Date : {date_facture}, Montant : {original_amount} ")
                 log_ko=True
+
+            if log_ko==False:
+             log_generale.append(f"✅ Achat {i} : OK , {log_piece}")
+            if log_ko==True:
+                log_generale.append(f"❌ Achat {i} : KO , {log_piece}")
             continue
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
