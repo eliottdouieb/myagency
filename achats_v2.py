@@ -274,17 +274,17 @@ def check_lignes_comptables(df):
         if check_devise(df_provisoire):
             # print('hey')
             if get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])!=False :
-                log_piece.append('Conversion de la devise effectue')
+                log_piece.append(f'Conversion de la devise effectue. Devise : {df_provisoire.iloc[0]['Devise']}, Date : {_to_iso_date(df_provisoire.iloc[0]['Date Facture'])}, Taux : {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])}, Montant : {df_provisoire.iloc[0]['Original Amount']}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
                     df.loc[df_provisoire.index[0],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
                     df.loc[df_provisoire.index[1],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
                     df.loc[df_provisoire.index[2],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
                 else:
-                    df.loc[df_provisoire.index[0],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
-                    df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
-                    df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']
+                    df.loc[df_provisoire.index[0],'Débit(€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']*(-1)
+                    df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']*(-1)
+                    df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])*df_provisoire.iloc[0]['Original Amount']*(-1)
             else:
-                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , {get_conversion_rate_frankfurter(df_provisoire.iloc[0]['Date Facture'],df_provisoire.iloc[0]['Devise'])},{df_provisoire.iloc[0]['Devise']},{_to_iso_date(df_provisoire.iloc[0]['Date Facture'])}")
+                log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle , Devise :{df_provisoire.iloc[0]['Devise']}, Date : {_to_iso_date(df_provisoire.iloc[0]['Date Facture'])}")
                 log_ko=True
         df_provisoire=df[(df["n° de piece"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
