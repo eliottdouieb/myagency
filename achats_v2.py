@@ -273,17 +273,18 @@ def check_lignes_comptables(df):
         date_facture=df_provisoire.iloc[0]['Date Facture']
         devise=df_provisoire.iloc[0]['Devise']
         original_amount=df_provisoire.iloc[0]['Original Amount']
+        rate=get_conversion_rate_frankfurter(date_facture,devise)
         if check_devise(df_provisoire):
-            if get_conversion_rate_frankfurter(date_facture,devise)!=False :
-                log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {get_conversion_rate_frankfurter(date_facture,devise)}, Montant : {original_amount}')
+            if rate!=False :
+                log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {rate}, Montant : {original_amount}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
-                    df.loc[df_provisoire.index[0],'Crédit (€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
-                    df.loc[df_provisoire.index[1],'Débit(€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
-                    df.loc[df_provisoire.index[2],'Débit(€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
+                    df.loc[df_provisoire.index[0],'Crédit (€)']=rate*original_amount
+                    df.loc[df_provisoire.index[1],'Débit(€)']=rate*original_amount
+                    df.loc[df_provisoire.index[2],'Débit(€)']=rate*original_amount
                 else:
-                    df.loc[df_provisoire.index[0],'Débit(€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
-                    df.loc[df_provisoire.index[1],'Crédit (€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
-                    df.loc[df_provisoire.index[2],'Crédit (€)']=get_conversion_rate_frankfurter(date_facture,devise)*original_amount
+                    df.loc[df_provisoire.index[0],'Débit(€)']=rate*original_amount*(-1)
+                    df.loc[df_provisoire.index[1],'Crédit (€)']=rate*original_amount*(-1)
+                    df.loc[df_provisoire.index[2],'Crédit (€)']=rate*original_amount*(-1)
             else:
                 log_piece.append(f"Ce numero de piece a besoin d'une conversion de la devise manuelle ,  Devise : {devise}, Date : {date_facture}, Montant : {original_amount} ")
                 log_ko=True
@@ -294,7 +295,7 @@ def check_lignes_comptables(df):
             log_ko=True
             achats_ko.append(i)
         
-        if get_conversion_rate_frankfurter(date_facture,devise)==False:
+        if rate==False:
             continue
         
         if check_oublie_credit_ou_debit(df_provisoire):
