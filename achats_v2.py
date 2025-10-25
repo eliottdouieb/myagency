@@ -281,7 +281,7 @@ def check_lignes_comptables(df):
             original_amount=df_provisoire.iloc[0]['Original Amount']
             rate=get_conversion_rate_frankfurter(date_facture,devise)
             if rate!=False :
-                log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {rate}, Montant : {original_amount}')
+                log_piece.append(f'🔧 Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {rate}, Montant : {original_amount}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
                     df.loc[df_provisoire.index[0],'Crédit (€)']=rate*original_amount
                     df.loc[df_provisoire.index[1],'Débit(€)']=rate*original_amount
@@ -321,7 +321,6 @@ def check_lignes_comptables(df):
                 idx_a_supprimer = get_index_lignes_vides(df_provisoire)
                 df.drop(index=idx_a_supprimer,inplace=True)
                 log_piece.append(f"🔧 ligne vide supprime")
-                #hey
 
             if check_mauvais_emplacement_credit(df_provisoire)==True:
                 log_piece.append(f" 🔧 mauvais emplacement credit modifie")
