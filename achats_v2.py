@@ -269,12 +269,11 @@ def check_lignes_comptables(df):
     for i in num_piece:
         log_piece=[]
         log_ko=False
-
         df_provisoire=df[(df["n° de piece"]==i)]
+        date_facture=df_provisoire.iloc[0]['Date Facture']
+        devise=df_provisoire.iloc[0]['Devise']
+        original_amount=df_provisoire.iloc[0]['Original Amount']
         if check_devise(df_provisoire):
-            date_facture=df_provisoire.iloc[0]['Date Facture']
-            devise=df_provisoire.iloc[0]['Devise']
-            original_amount=df_provisoire.iloc[0]['Original Amount']
             if get_conversion_rate_frankfurter(date_facture,devise)!=False :
                 log_piece.append(f'Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {get_conversion_rate_frankfurter(date_facture,devise)}, Montant : {original_amount}')
                 if df_provisoire.iloc[0]['Original Amount']>0:
