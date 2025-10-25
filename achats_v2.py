@@ -6,7 +6,7 @@ from io import StringIO
 import math
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime,date
 import requests
 import streamlit as st
 from io import BytesIO
@@ -14,7 +14,7 @@ from io import BytesIO
 def _to_iso_date(v) -> str | None:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
-    if isinstance(v, (datetime, datetime.date, pd.Timestamp)):
+    if isinstance(v, (datetime, date, pd.Timestamp)):
         return pd.to_datetime(v).strftime("%Y-%m-%d")
     s = str(v).strip()
     for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
