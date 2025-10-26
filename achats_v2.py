@@ -425,7 +425,7 @@ def run_interface():
                                     else :
                                         api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | Numero de piece non existant")
                                 else:
-                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] })")
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] },{result["succes"]},{result["message"]})")
                             else:
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | {result["body"] }")
 
