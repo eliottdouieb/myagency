@@ -418,16 +418,17 @@ def run_interface():
                                 continue
 
                             result = run_api_crm(invoice_number, compte_value, date)
+                            st.write(result)
                             if result["status"] and 200 <= result["status"]  < 300:
                                 if result["succes"]==False:
                                     if result["message"]=="Line not updated, same value":
-                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
                                     else :
-                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | Numero de piece non existant")
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
                                 else:
-                                    api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result["status"] },hey {result["succes"]},{result["message"]})")
+                                    api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['succes']},{result['message']})")
                             else:
-                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | {result["body"] }")
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
                         with st.expander("Détails des mises à jour CRM"):
                             for line in api_logs:
