@@ -418,7 +418,6 @@ def run_interface():
                                 continue
 
                             result = run_api_crm(invoice_number, compte_value, date)
-                            st.write(result)
                             if result["status"] and 200 <= result["status"]  < 300:
                                 if result["success"]==False:
                                     if result["message"]=="Line not updated, same value":
@@ -430,9 +429,10 @@ def run_interface():
                             else:
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
-                        with st.expander("Détails des mises à jour CRM"):
+                with st.expander("Détails des mises à jour CRM"):
                             for line in api_logs:
                                 st.write(line)
+                                st.write(result)
 
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
