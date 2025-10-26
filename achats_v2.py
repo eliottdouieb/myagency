@@ -101,6 +101,8 @@ def run_api_crm(num_de_piece,value,date):
             "status": resp.status_code,
             "type": "Réponse JSON",
             "body": resp.json() if "application/json" in ctype else resp.text,
+            "message":resp.json()['message'],
+            "succes":resp.json()['success'],
         }
     except ValueError:
         return {
@@ -417,7 +419,13 @@ def run_interface():
 
                             result = run_api_crm(invoice_number, compte_value, date)
                             if result["status"] and 200 <= result["status"]  < 300:
-                                api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] })")
+                                if result["succes"]==False:
+                                    if result["message"]=="Line not updated, same value":
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
+                                    else :
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | Numero de piece non existant")
+                                else:
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] })")
                             else:
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result["status"] }) | {result["body"] }")
 
