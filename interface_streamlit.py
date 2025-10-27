@@ -15,7 +15,7 @@ if option == "Achats":
     run_achats()
 
 elif option == "Ventes":
-    from controle_ventes import run_interface as run_ventes
+    from ventes_v2 import run_interface as run_ventes
     run_ventes()
 
 else :
