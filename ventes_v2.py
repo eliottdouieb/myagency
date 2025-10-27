@@ -272,25 +272,8 @@ def check_lignes_comptables(df):
                 Compte_Tiers_invalide+=1
                 log_ko=True
                 ventes_ko.append(i)
-            # date_facture=df_provisoire.iloc[0]['Date']
-            # Currency=df_provisoire.iloc[0]['Currency']
-            # original_amount=df_provisoire.iloc[0]['Original Amount']
-            # rate=get_conversion_rate_frankfurter(date_facture,Currency)
-            # if rate!=False :
-            #     log_piece.append(f'🔧 Conversion de la Currency effectue. Currency : {Currency}, Date : {date_facture}, Taux : {rate}, Montant : {original_amount}')
-            #     if df_provisoire.iloc[0]['Original Amount']>0:
-            #         df.loc[df_provisoire.index[0],'Credit']=rate*original_amount
-            #         df.loc[df_provisoire.index[1],'Debit']=rate*original_amount
-            #         df.loc[df_provisoire.index[2],'Debit']=rate*original_amount
-            #     else:
-            #         df.loc[df_provisoire.index[0],'Debit']=rate*original_amount*(-1)
-            #         df.loc[df_provisoire.index[1],'Credit']=rate*original_amount*(-1)
-            #         df.loc[df_provisoire.index[2],'Credit']=rate*original_amount*(-1)
-            # else:
-            #     log_piece.append(f"Ce numero de piece a besoin d'une conversion de la Currency manuelle ,  Currency : {Currency}, Date : {date_facture}, Montant : {original_amount} ")
-            #     log_ko=True
-
             if check_facture_0(df_provisoire):
+                st.write('HEYYY')
                 log_piece.append("🔧 Erreur sur facture mise à 0 corrigée automatiquement") 
                 ligne_411 = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() == "411000"]
                 if ligne_411.shape[0] == 1:
