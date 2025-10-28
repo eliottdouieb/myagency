@@ -264,42 +264,42 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["#"]==i)]
-        if check_Currency(df_provisoire):
-            if check_compte_tiers_invalide(df_provisoire):
-                log_piece.append("Account Client invalide")
-                Compte_Tiers_invalide+=1
-                log_ko=True
-                ventes_ko.append(i)
-            if check_facture_0(df_provisoire):
-                log_piece.append("🔧 Erreur sur facture mise à 0 corrigée automatiquement") 
-                ligne_411 = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() == "411000"]
-                if ligne_411.shape[0] == 1:
-                    l411 = ligne_411.iloc[0]
-                    autres = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() != "411000"]
+        if check_compte_tiers_invalide(df_provisoire):
+            log_piece.append("Account Client invalide")
+            Compte_Tiers_invalide+=1
+            log_ko=True
+            ventes_ko.append(i)
+        if check_facture_0(df_provisoire):
+            log_piece.append("🔧 Erreur sur facture mise à 0 corrigée automatiquement") 
+            ligne_411 = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() == "411000"]
+            if ligne_411.shape[0] == 1:
+                l411 = ligne_411.iloc[0]
+                autres = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() != "411000"]
 
-                    idx_ligne_411 = ligne_411.index[0]
-                    df.loc[[idx_ligne_411, autres.index[0]], "Account General"] = l411["Account General"]
-                    df.loc[[idx_ligne_411, autres.index[0]], "Account Client"] = l411["Account Client"]
+                idx_ligne_411 = ligne_411.index[0]
+                df.loc[[idx_ligne_411, autres.index[0]], "Account General"] = l411["Account General"]
+                df.loc[[idx_ligne_411, autres.index[0]], "Account Client"] = l411["Account Client"]
 
-                    df.loc[idx_ligne_411, "Debit"] = 1.0
-                    df.loc[idx_ligne_411, "Credit"] = 0.0
-                    df.loc[autres.index[0], "Debit"] = 0.0
-                    df.loc[autres.index[0], "Credit"] = 1.0
+                df.loc[idx_ligne_411, "Debit"] = 1.0
+                df.loc[idx_ligne_411, "Credit"] = 0.0
+                df.loc[autres.index[0], "Debit"] = 0.0
+                df.loc[autres.index[0], "Credit"] = 1.0
 
-                    if df.loc[idx_ligne_411, "Code"] != "G":
-                        df.loc[idx_ligne_411, "Code"] = "G"
-                    if df.loc[autres.index[0], "Code"] != "G":
-                        df.loc[autres.index[0], "Code"] = "G"
+                if df.loc[idx_ligne_411, "Code"] != "G":
+                    df.loc[idx_ligne_411, "Code"] = "G"
+                if df.loc[autres.index[0], "Code"] != "G":
+                    df.loc[autres.index[0], "Code"] = "G"
 
-                    lignes_a_supprimer = autres.index[1:]
-                    df.drop(lignes_a_supprimer, inplace=True)
+                lignes_a_supprimer = autres.index[1:]
+                df.drop(lignes_a_supprimer, inplace=True)
 
             if log_ko==False:
-             log_generale.append(f"✅ vente {i} : OK , {log_piece}")
+                log_generale.append(f"✅ vente {i} : OK , {log_piece}")
             if log_ko==True:
                 log_generale.append(f"❌ vente {i} : KO , {log_piece}")
             continue
-
+            
+        
         df_provisoire=df[(df["#"]==i) & (df["Code"]=="G")]
         if check_compte_tiers_invalide(df_provisoire):
             log_piece.append("Account Client invalide")
