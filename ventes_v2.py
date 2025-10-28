@@ -315,9 +315,12 @@ def check_lignes_comptables(df):
             df_provisoire.loc[df_provisoire[df_provisoire['Account General']==411000].index, "Credit"] = df_provisoire[df_provisoire['Account General']!=411000]['Debit'].sum()
             log_piece.append(f"🔧 vente {i}- Credit ou Debit omis")
 
-        if check_credit_egale_debit(df_provisoire)==False:
-            log_piece.append(f"Credit≠Debit {df_provisoire['Debit'].sum()} -- {df_provisoire['Credit'].sum()}")
-            log_ko=True
+        if round(df_provisoire["Debit"].sum(), 2) != round(df_provisoire["Credit"].sum(), 2):
+            log_piece.append(
+                f"Credit≠Debit {round(df_provisoire['Debit'].sum(), 2)} -- {round(df_provisoire['Credit'].sum(), 2)}"
+            )
+            log_ko = True
+
         else:
             if check_lignes_vides(df_provisoire)==False:
                 idx_a_supprimer = get_index_lignes_vides(df_provisoire)
