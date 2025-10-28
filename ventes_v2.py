@@ -264,12 +264,13 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["#"]==i)]
-        if check_compte_tiers_invalide(df_provisoire):
-            log_piece.append("Account Client invalide")
-            Compte_Tiers_invalide+=1
-            log_ko=True
-            ventes_ko.append(i)
         if check_facture_0(df_provisoire):
+            if check_compte_tiers_invalide(df_provisoire):
+                log_piece.append("Account Client invalide")
+                Compte_Tiers_invalide+=1
+                log_ko=True
+                ventes_ko.append(i)
+
             log_piece.append("🔧 Erreur sur facture mise à 0 corrigée automatiquement") 
             ligne_411 = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() == "411000"]
             if ligne_411.shape[0] == 1:
