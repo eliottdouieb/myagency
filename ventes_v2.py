@@ -239,20 +239,18 @@ def check_mauvais_emplacement_debit(df):
         return False
 
 def check_facture_0(df):
-    ligne_411 = df[df["Account General"].astype(str).str.strip() == "411000"]
+    # ligne_411 = df[df["Account General"].astype(str).str.strip() == "411000"]
+    # l411 = ligne_411.iloc[0]
+    # autres = df[df["Account General"].astype(str).str.strip() != "411000"]
+    
+    total_debit = df["Debit"].sum()
+    total_credit = df["Credit"].sum()
 
-    if ligne_411.shape[0] == 1:
-        l411 = ligne_411.iloc[0]
-        autres = df[df["Account General"].astype(str).str.strip() != "411000"]
-        
-        total_debit = df["Debit"].sum()
-        total_credit = df["Credit"].sum()
-
-        if total_debit == 0 and total_credit == 0 and len(df) >= 2:
-            return True
-        
-        else:
-            return False
+    if total_debit == 0 and total_credit == 0:
+        return True
+    
+    else:
+        return False
 
 
 def check_lignes_comptables(df):
@@ -273,7 +271,6 @@ def check_lignes_comptables(df):
                 log_ko=True
                 ventes_ko.append(i)
             if check_facture_0(df_provisoire):
-                st.write('HEYYY')
                 log_piece.append("🔧 Erreur sur facture mise à 0 corrigée automatiquement") 
                 ligne_411 = df_provisoire[df_provisoire["Account General"].astype(str).str.strip() == "411000"]
                 if ligne_411.shape[0] == 1:
