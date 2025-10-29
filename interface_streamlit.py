@@ -23,5 +23,5 @@ elif option == "Encaissements":
     run_encaissements()
 
 elif option == "API":
-    from api import call_crm_once  as run_encaissements
-    run_encaissements()
+    from api import call_crm_once  as run_api
+    run_api()
