@@ -260,7 +260,7 @@ def check_lignes_comptables(df):
     for i in invoice:
         log_piece=[]
         log_ko=False
-        df_provisoire=df[(df["Invoice #"]==i) & (df["Analytics"]=="G")]
+        df_provisoire=df[(df["Invoice #"]==i)]
         st.write(i,df_provisoire )
 
         if check_compte_tiers_invalide(df_provisoire):
