@@ -430,7 +430,7 @@ def run_interface():
                             st.write("📤 Envoi CRM:", invoice_number, compte_value, date)
 
 
-                            st.write("Test égalité CRM :", df[df["#"] == invoice_number])
+                            st.write("Test égalité CRM :", df[df["#"] == int(invoice_number)])
                             df["#"] = df["#"].apply(normalize_invoice)
                             df["Account Client"] = df["Account Client"].apply(normalize_account_client)
                             result = run_api_crm(invoice_number, compte_value, date)
