@@ -19,6 +19,5 @@ elif option == "Ventes":
     run_ventes()
 
 else :
-    import controle_encaissements_v2 as ce2
-    ce2.run_encaissements()
-
+    from encaissements_v2 import run_interface as run_encaissements
+    run_encaissements()
