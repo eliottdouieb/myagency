@@ -324,6 +324,8 @@ def run_interface():
 
         df = st.session_state.df_source
 
+        st.write(df)
+        
         log_generale,Compte_Tiers_invalide,encaissements_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
 
