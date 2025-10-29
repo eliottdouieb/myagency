@@ -427,7 +427,7 @@ def run_interface():
                             # if not invoice_number:
                             #     api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
                             #     continue hey
-                            st.write("📤 Envoi CRM:", invoice_number, compte_value, date)
+                            st.write(f"📤 Envoi CRM:{invoice_number}{compte_value}{date}")
 
 
                             st.write("Test égalité CRM :", df[df["#"] == int(invoice_number)])
