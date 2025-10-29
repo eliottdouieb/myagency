@@ -261,14 +261,13 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["Invoice #"]==i) & (df["Analytics"]=="G")]
+        st.write(i,df_provisoire )
+
         if check_compte_tiers_invalide(df_provisoire):
             log_piece.append("Account Client invalide")
             Compte_Tiers_invalide+=1
             log_ko=True
             encaissements_ko.append(i)
-
-        else:
-            st.write(i,df_provisoire )
         
         if check_oublie_credit_ou_debit(df_provisoire):
             df.loc[df_provisoire[df_provisoire['Account Global']==411000].index, "Debit"] = df_provisoire[df_provisoire['Account Global']!=411000]['Credit'].sum()
@@ -325,7 +324,7 @@ def run_interface():
         df = st.session_state.df_source
 
         st.write(df)
-        
+
         log_generale,Compte_Tiers_invalide,encaissements_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
 
