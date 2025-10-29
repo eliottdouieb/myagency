@@ -18,6 +18,6 @@ elif option == "Ventes":
     from ventes_v2 import run_interface as run_ventes
     run_ventes()
 
-else :
+elif option == "Encaissements":
     from encaissements_v2 import run_interface as run_encaissements
     run_encaissements()
