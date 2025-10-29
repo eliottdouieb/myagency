@@ -414,7 +414,7 @@ def run_interface():
                             # if not invoice_number:
                             #     api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
                             #     continue
-
+                            st.write(invoice_number,compte_value,date)
                             result = run_api_crm(invoice_number, compte_value, date)
                             if result["status"] and 200 <= result["status"]  < 300:
                                 if result["success"]==False:
