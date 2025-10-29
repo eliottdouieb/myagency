@@ -261,7 +261,6 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["Invoice #"]==i)]
-        st.write(i,df_provisoire )
 
         if check_compte_tiers_invalide(df_provisoire):
             log_piece.append("Account Client invalide")
@@ -323,7 +322,6 @@ def run_interface():
 
         df = st.session_state.df_source
 
-        st.write(df)
 
         log_generale,Compte_Tiers_invalide,encaissements_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
