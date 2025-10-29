@@ -11,6 +11,18 @@ import requests
 import streamlit as st
 from io import BytesIO
 
+import re
+
+def normalize_invoice(v):
+    """Ex: 54147.0 → '54147'"""
+    s = str(v).strip()
+    return re.sub(r"\.0$", "", s)
+
+def normalize_account_client(v):
+    """Ex: ' 411lo ' → '411LO'"""
+    return str(v).strip().upper()
+
+
 def _to_iso_date(v) -> str | None:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
@@ -406,15 +418,21 @@ def run_interface():
                         if not idx.empty:
                             df.loc[idx, ["Account Client"]] = r[["Account Client"]].values
                         with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
-                            invoice_number = str(r["#"]).strip()
-                            compte_value = str(r["Account Client"]).strip()
-                            date = _to_iso_date(str(r["Date"]).strip())
+                            invoice_number = normalize_invoice(r["#"])
+                            compte_value = normalize_account_client(r["Account Client"])
+                            date = _to_iso_date(r["Date"])
+
                                 
                             # skip si facture vide
                             # if not invoice_number:
                             #     api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
                             #     continue hey
-                            st.write(invoice_number,compte_value,date,type(invoice_number),type(compte_value),type(date))
+                            st.write("📤 Envoi CRM:", invoice_number, compte_value, date)
+
+
+                            st.write("Test égalité CRM :", df[df["#"] == invoice_number])
+                            df["#"] = df["#"].apply(normalize_invoice)
+                            df["Account Client"] = df["Account Client"].apply(normalize_account_client)
                             result = run_api_crm(invoice_number, compte_value, date)
 
                             if result["status"] and 200 <= result["status"]  < 300:
