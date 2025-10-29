@@ -349,7 +349,7 @@ def run_interface():
             rerun_key = f"rerun_{st.session_state.ko_cycle}"
 
             edited = st.data_editor(
-                df_unique[["Invoice #", "Account Client", "Debit", "Credit", "Name", "Concierge",'Payment Date']],
+                df_unique[["Invoice #", "Account Client", "Debit", "Credit", "Name",'Payment Date']],
                 key=editor_key,
                 hide_index=True,
             )
