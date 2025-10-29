@@ -15,16 +15,13 @@ PAYMENT_DICT = {
 
 
 
-# ✅ DF à exporter en toute circonstance (ACHATS)
+# ✅ DF à exporter en toute circonstance
 def _get_df_to_export_anytime() -> pd.DataFrame:
     if "controle_logs" in st.session_state and "df" in st.session_state["controle_logs"]:
         return st.session_state["controle_logs"]["df"]
-    if "df_source" in st.session_state:
-        return st.session_state["df_source"]
-    return pd.DataFrame(columns=[
-        "n° de piece", "Date Facture", "Compte Généraux", "Compte Tiers",
-        "Débit(€)", "Crédit (€)", "Libelle", "Concierge", "Analytique", "Code"
-    ])
+    if "df_source_encaissements" in st.session_state:
+        return st.session_state["df_source_encaissements"]
+    return pd.DataFrame(columns=["Invoice #", "Date", "Payment Date", "Name", "Account Global", "Account Client", "Debit", "Credit", "Analytics", "Payment Mean"])
 
 
 # ✅ Barre latérale export toujours dispo
@@ -119,7 +116,7 @@ def apply_cb_to_amex_fix(df: pd.DataFrame) -> pd.DataFrame:
       3) Si une ligne a 'Account Global' vide, on ajoute à son 'Debit' la commission (Credit de 627510)
     """
     out = df.copy()
-
+#heyyyy
     for inv, g in out.groupby("Invoice #"):
         dsum = round(float(g["Debit"].sum()), 2)
         csum = round(float(g["Credit"].sum()), 2)
@@ -219,7 +216,7 @@ def run_encaissements():
     st.title("🔍 Contrôle des écritures comptables - Encaissements")
 
     show_sidebar_download() # bouton dispo tout le temps à gauche
-
+    
     uploaded_file = st.file_uploader("📤 Upload ton fichier Excel (format tableau)", type=["xlsx", "xls", "csv"], key="uploader_encaissements_v2")
 
     # Init des flags d'état
