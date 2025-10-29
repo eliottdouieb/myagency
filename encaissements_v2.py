@@ -268,7 +268,7 @@ def check_lignes_comptables(df):
             encaissements_ko.append(i)
 
         else:
-            st.write("YOOOOOOOOOOO")
+            st.write(i)
         
         if check_oublie_credit_ou_debit(df_provisoire):
             df.loc[df_provisoire[df_provisoire['Account Global']==411000].index, "Debit"] = df_provisoire[df_provisoire['Account Global']!=411000]['Credit'].sum()
