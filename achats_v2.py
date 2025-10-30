@@ -335,8 +335,9 @@ def check_lignes_comptables(df):
             achats_ko.append(i)
 
         if euros_zeros(df_provisoire):
-            log_piece.append("Erreur ! Crédit et débit sont à 0. Vérifiez manuellement. ")
+            log_piece.append("Erreur ! Crédit et débit sont à 0. Vérifiez et corrigez manuellement. ")
             log_ko=True
+            log_generale.append(f"❌ Achat {i} : KO , {log_piece}")
             continue
 
         
