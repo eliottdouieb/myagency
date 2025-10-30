@@ -422,31 +422,24 @@ def run_interface():
                         ].index
                         if not idx.empty:
                             df.loc[idx, ["Account Client"]] = r[["Account Client"]].values
-                    st.write(ajout_crm)
-                #         with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
-                #             invoice_number = normalize_invoice(r["#"])
-                #             compte_value = normalize_account_client(r["Account Client"])
-                #             date = _to_iso_date(r["Date"])
 
-                            
-                #             df["#"] = df["#"].apply(normalize_invoice)
-                #             df["Account Client"] = df["Account Client"].apply(normalize_account_client)
-                #             result = run_api_crm(invoice_number, compte_value, date)
+                with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                    for i in ajout_crm:
+                        result = run_api_crm(i[0], i[1], i[2])
+                        if result["status"] and 200 <= result["status"]  < 300:
+                            if result["success"]==False:
+                                if result["message"]=="Line not updated, same value":
+                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
+                                else :
+                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                            else:
+                                api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']})")
+                        else:
+                            api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
-                #             if result["status"] and 200 <= result["status"]  < 300:
-                #                 if result["success"]==False:
-                #                     if result["message"]=="Line not updated, same value":
-                #                         api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
-                #                     else :
-                #                         api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
-                #                 else:
-                #                     api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']})")
-                #             else:
-                #                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
-
-                # with st.expander("Détails des mises à jour CRM"):
-                #     for line in api_logs:
-                #         st.write(line)
+                with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
 
 
                 st.session_state.df_source = df
