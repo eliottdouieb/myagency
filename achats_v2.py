@@ -132,7 +132,7 @@ def show_sidebar_download():
         df_current = st.session_state.df_source.copy()
 
         # 1) supprimer première ligne
-        df_current = df_current.iloc[1:, :].reset_index(drop=True)
+        df_current = df_current.iloc[0:, :].reset_index(drop=True)
 
         # 2) supprimer colonnes
         cols_to_drop = [c for c in ["Devise", "Original Amount"] if c in df_current.columns]
