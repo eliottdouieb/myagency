@@ -130,6 +130,15 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
 def show_sidebar_download():
     if "df_source" in st.session_state and st.session_state.df_source is not None:
         df_current = st.session_state.df_source.copy()  # 🔄 récupère toujours l'état actuel
+
+        # 🚫 Supprime la première ligne
+        df_current = df_current.iloc[1:, :].reset_index(drop=True)
+
+        # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
+        cols_to_drop = [col for col in ["Devise", "Original Amount"] if col in df_current.columns]
+        if cols_to_drop:
+            df_current.drop(columns=cols_to_drop, inplace=True)
+
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
