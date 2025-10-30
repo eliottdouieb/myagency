@@ -261,6 +261,13 @@ def check_facture_0(df):
     
     else:
         return False
+    
+def check_devise_etranger(df):
+    if (df["Currency"]!='€').all():
+        return True
+    else:
+        return False
+
 
 
 def check_lignes_comptables(df):
@@ -274,6 +281,21 @@ def check_lignes_comptables(df):
         log_piece=[]
         log_ko=False
         df_provisoire=df[(df["#"]==i)]
+
+        if check_devise_etranger(df_provisoire):
+            date_facture=df_provisoire.iloc[0]['Date']
+            devise=df_provisoire.iloc[0]['Currency']
+            rate=get_conversion_rate_frankfurter(date_facture,devise)
+            if rate!=False :
+                log_piece.append(f'🔧 Conversion de la devise effectue. Devise : {devise}, Date : {date_facture}, Taux : {rate}')
+                idx = df_provisoire.index  # récupère les index correspondants dans le df principal
+                df.loc[idx, "Debit"] = df.loc[idx, "Debit"] * rate
+                df.loc[idx, "Credit"] = df.loc[idx, "Credit"] * rate
+
+            else:
+                log_piece.append(f"Cette facture a besoin d'une conversion de la devise manuelle ,  Devise : {devise}, Date : {date_facture} ")
+                log_ko=True
+
         if check_facture_0(df_provisoire):
             if check_compte_tiers_invalide(df_provisoire):
                 log_piece.append("Account Client invalide")
