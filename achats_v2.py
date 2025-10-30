@@ -276,6 +276,14 @@ def check_mauvais_emplacement_debit(df):
         return True
     else:
         return False
+    
+def euros_zeros(df):
+    # Vérifie si la devise est l'euro ET que tout est à 0
+    if (df["Devise"] == "€").any() and df["Débit(€)"].sum() == 0 and df["Crédit (€)"].sum() == 0:
+        return True
+    else:
+        return False
+
 
 
 def check_lignes_comptables(df):
@@ -324,6 +332,12 @@ def check_lignes_comptables(df):
             Compte_Tiers_invalide+=1
             log_ko=True
             achats_ko.append(i)
+
+        if euros_zeros(df_provisoire):
+            log_piece.append("Erreur ! Crédit et débit sont à 0. Vérifiez manuellement. ")
+            log_ko=True
+            continue
+
         
         if check_oublie_credit_ou_debit(df_provisoire):
             df.loc[df_provisoire[df_provisoire['Compte Généraux']==401000].index, "Débit(€)"] = df_provisoire[df_provisoire['Compte Généraux']!=401000]['Crédit (€)'].sum()
@@ -379,8 +393,6 @@ def run_interface():
         log_debut=[]
         log_debut.append(remplie_numero_piece_manquant(df))
         log_debut.append(suppression_445660_dans_Compte_tiers(df))
-
-        st.write(df.head())
 
         log_generale,Compte_Tiers_invalide,achats_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
