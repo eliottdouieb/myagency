@@ -452,5 +452,5 @@ def run_interface():
                     log_generale, Compte_Tiers_invalide, ventes_ko = check_lignes_comptables(df)
                     st.session_state.ko_cycle += 1  # ➜ nouvelles clés uniques au prochain rendu
                     st.success("Le contrôle a été relancé ✅")
-                    st.experimental_rerun()  # force un rerender propre
+                    st.experimental_rerun()  # force un rerender propree
 
