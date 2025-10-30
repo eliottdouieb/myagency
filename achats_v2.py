@@ -132,7 +132,7 @@ def show_sidebar_download():
         df_current = st.session_state.df_source.copy()
 
         # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
-        cols_to_drop = [col for col in ["Devise", "Original Amount"] if col in df_current.columns]
+        cols_to_drop = [col for col in ["Devise", "Original Amount",'Concierge'] if col in df_current.columns]
         if cols_to_drop:
             df_current.drop(columns=cols_to_drop, inplace=True)
 
@@ -218,6 +218,10 @@ def suppression_445660_dans_Compte_tiers(df):
     mask_445 = (df["Compte Généraux"] == 445660) & (df["Compte Tiers"] == '445660')
     df.loc[mask_445, "Compte Tiers"] = np.nan
     return("✅ La colonne Compte Tiers ne comprend plus de 445660 mal placés.")
+
+def suppression_caracteres_speciaux(df):
+    df["Libelle"] = df["Libelle"].str.replace(r"[^\w\sÀ-ÿ]", "", regex=True)
+    return ("✅ La colonne Libelle ne comprend plus de caractères spéciaux.")
 
 
 def check_devise(df):
