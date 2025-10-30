@@ -138,7 +138,7 @@ def show_sidebar_download():
         cols_to_drop = [col for col in ["Devise", "Original Amount"] if col in df_current.columns]
         if cols_to_drop:
             df_current.drop(columns=cols_to_drop, inplace=True)
-
+        #heyy
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
