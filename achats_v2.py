@@ -399,6 +399,7 @@ def run_interface():
         log_debut=[]
         log_debut.append(remplie_numero_piece_manquant(df))
         log_debut.append(suppression_445660_dans_Compte_tiers(df))
+        log_debut.append(suppression_caracteres_speciaux(df))
 
         log_generale,Compte_Tiers_invalide,achats_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
