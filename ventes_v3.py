@@ -410,6 +410,7 @@ def run_interface():
             if st.button("✅ Valider les corrections", key=validate_key):
                 api_logs = []
                 for _, r in edited.iterrows():
+                    st.write(_,r)
                     if r['Account Client'] != "411-NO MEMBER ACCOUNT":
                         idx = df[
                             (df["Name"] == r["Name"]) 
