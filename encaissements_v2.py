@@ -130,12 +130,38 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
 def show_sidebar_download():
     if "df_source" in st.session_state and st.session_state.df_source is not None:
         df_current = st.session_state.df_source.copy()  # 🔄 récupère toujours l'état actuel
+
+        # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
+        cols_to_drop = [col for col in ["Analytics", "Payment Mean",'Comment'] if col in df_current.columns]
+        if cols_to_drop:
+            df_current.drop(columns=cols_to_drop, inplace=True)
+
+        col = "Invoice #"
+        cols = list(df_current.columns)
+
+        # On enlève la colonne de sa position actuelle
+        cols.remove(col)
+
+        # On la réinsère en 3e position (index 2)
+        cols.insert(2, col)
+
+        # Réordonne le DataFrame
+        df_current = df_current[cols]
+
+                # 📥 Conversion vers Excel sans les noms de colonnes
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            # index=False pour ne pas exporter l'index
+            # header=False pour ne pas exporter les noms de colonnes 👇
+            df_current.to_excel(writer, index=False, header=False)
+        buf.seek(0)
+
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
                 "📅 Télécharger maintenant",
-                dataframe_to_excel_bytes(df_current),
-                "encaissements_export.xlsx",
+                data=buf,
+                file_name="encaissements_export.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_sidebar_anytime"
             )
@@ -318,6 +344,13 @@ def run_interface():
 
         df = st.session_state.df_source
 
+                # Étape 1 : garder uniquement ce qu’il y a avant le premier tiret '-'
+        df["Name"] = df["Name"].astype(str).str.split("-", n=1).str[0]
+
+        # Étape 2 : supprimer tous les caractères spéciaux
+        df["Name"] = df["Name"].str.replace(r"[^a-zA-Z0-9\sÀ-ÿ]", "", regex=True)
+
+        st.write("🔧 Nettoyage de la colonne Name effectué : suppression après '-' et caractères spéciaux retirés.")
 
         log_generale,Compte_Tiers_invalide,encaissements_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
