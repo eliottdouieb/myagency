@@ -10,6 +10,7 @@ from datetime import datetime,date
 import requests
 import streamlit as st
 from io import BytesIO
+import time
 
 import re
 
@@ -430,19 +431,19 @@ def run_interface():
                         if result["status"] and 200 <= result["status"]  < 300:
                             if result["success"]==False:
                                 if result["message"]=="Line not updated, same value":
-                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
+                                    api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
                                 else :
-                                    api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                                    api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }) | Numero de piece non existant")
                             else:
-                                api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] }, {result['success']},{result['message']})")
+                                api_logs.append(f"✅ CRM ok — numéro de pieceeee {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']})")
                         else:
-                            api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
+                            api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }) | {result['body'] }")
+                        time.sleep(0.5)
 
                 with st.expander("Détails des mises à jour CRM"):
                     for line in api_logs:
                         st.write(line)
 
-                st.write('HELLLOOOOO')
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
 
