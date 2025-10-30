@@ -4,7 +4,7 @@ st.set_page_config(page_title="Contrôle des écritures comptables", layout="wid
 
 st.title("📊 Interface de Contrôle Comptable")
 
-option = st.radio("Quel type d'écriture souhaites-tu contrôler ?", ["Achats","Ventes","Encaissements","API"], horizontal=True)
+option = st.radio("Quel type d'écriture souhaites-tu contrôler ?", ["Achats","Ventes","Encaissements"], horizontal=True)
 
 # if option == "Achats":
 #     from controle_achats import run_interface as run_achats
@@ -22,6 +22,6 @@ elif option == "Encaissements":
     from encaissements_v2 import run_interface as run_encaissements
     run_encaissements()
 
-elif option == "API":
-    from api import call_crm_once  as run_api
-    run_api()
+# elif option == "API":
+#     from api import call_crm_once  as run_api
+#     run_api()
