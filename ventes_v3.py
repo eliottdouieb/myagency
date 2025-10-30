@@ -426,6 +426,7 @@ def run_interface():
                 with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
                     for i in ajout_crm:
                         result = run_api_crm(i[0], i[1], i[2])
+                        str.write(result)
                         if result["status"] and 200 <= result["status"]  < 300:
                             if result["success"]==False:
                                 if result["message"]=="Line not updated, same value":
