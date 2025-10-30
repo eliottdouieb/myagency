@@ -131,25 +131,28 @@ def show_sidebar_download():
     if "df_source" in st.session_state and st.session_state.df_source is not None:
         df_current = st.session_state.df_source.copy()
 
-        # 1) supprimer première ligne
-        df_current = df_current.iloc[0:, :].reset_index(drop=True)
-
-        # 2) supprimer colonnes
-        cols_to_drop = [c for c in ["Devise", "Original Amount"] if c in df_current.columns]
+        # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
+        cols_to_drop = [col for col in ["Devise", "Original Amount"] if col in df_current.columns]
         if cols_to_drop:
             df_current.drop(columns=cols_to_drop, inplace=True)
 
-        # 3) ➜ on fabrique les bytes MAINTENANT
-        excel_bytes = dataframe_to_excel_bytes(df_current)
+        # 📥 Conversion vers Excel sans les noms de colonnes
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            # index=False pour ne pas exporter l'index
+            # header=False pour ne pas exporter les noms de colonnes 👇
+            df_current.to_excel(writer, index=False, header=False)
+        buf.seek(0)
 
+        # 🖱️ Bouton de téléchargement
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
                 "📅 Télécharger maintenant",
-                data=excel_bytes,
+                data=buf,
                 file_name="achats_export.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_sidebar_anytime",
+                key="dl_sidebar_anytime"
             )
 
 
