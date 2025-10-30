@@ -105,10 +105,7 @@ def run_api_crm(invoice,value,date):
         "ApiToken": ApiToken,
     }
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=15)
 
-    # print("HTTP:", resp.status_code)
-    ctype = (resp.headers.get("content-type") or "").lower()
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
         ctype = (resp.headers.get("content-type") or "").lower()
