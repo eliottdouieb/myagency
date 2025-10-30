@@ -129,25 +129,29 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
     
 def show_sidebar_download():
     if "df_source" in st.session_state and st.session_state.df_source is not None:
-        df_current = st.session_state.df_source.copy()  # 🔄 récupère toujours l'état actuel
+        df_current = st.session_state.df_source.copy()
 
-        # 🚫 Supprime la première ligne
+        # 1) supprimer première ligne
         df_current = df_current.iloc[1:, :].reset_index(drop=True)
 
-        # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
-        cols_to_drop = [col for col in ["Devise", "Original Amount"] if col in df_current.columns]
+        # 2) supprimer colonnes
+        cols_to_drop = [c for c in ["Devise", "Original Amount"] if c in df_current.columns]
         if cols_to_drop:
             df_current.drop(columns=cols_to_drop, inplace=True)
-        #heyy
+
+        # 3) ➜ on fabrique les bytes MAINTENANT
+        excel_bytes = dataframe_to_excel_bytes(df_current)
+
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
                 "📅 Télécharger maintenant",
-                dataframe_to_excel_bytes(df_current),
-                "achats_export.xlsx",
+                data=excel_bytes,
+                file_name="achats_export.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_sidebar_anytime"
+                key="dl_sidebar_anytime",
             )
+
 
 def dataframe_to_excel_bytes(df: pd.DataFrame) -> BytesIO:
     buf = BytesIO()
