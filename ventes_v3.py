@@ -11,7 +11,6 @@ import requests
 import streamlit as st
 from io import BytesIO
 import time
-
 import re
 
 def normalize_invoice(v):
@@ -144,12 +143,26 @@ def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
 def show_sidebar_download():
     if "df_source" in st.session_state and st.session_state.df_source is not None:
         df_current = st.session_state.df_source.copy()  # 🔄 récupère toujours l'état actuel
+
+        # 🚫 Supprime les colonnes 'Devise' et 'Original Amount' si elles existent
+        cols_to_drop = [col for col in ["Concierge", "Currency"] if col in df_current.columns]
+        if cols_to_drop:
+            df_current.drop(columns=cols_to_drop, inplace=True)
+
+        # 📥 Conversion vers Excel sans les noms de colonnes
+        buf = BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            # index=False pour ne pas exporter l'index
+            # header=False pour ne pas exporter les noms de colonnes 👇
+            df_current.to_excel(writer, index=False, header=False)
+        buf.seek(0)
+
         with st.sidebar:
             st.markdown("### 📅 Export permanent")
             st.download_button(
                 "📅 Télécharger maintenant",
-                dataframe_to_excel_bytes(df_current),
-                "ventes_export.xlsx",
+                data=buf,
+                file_name="ventes_export.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_sidebar_anytime"
             )
@@ -393,6 +406,17 @@ def run_interface():
             st.session_state.df_source = safe_read_excel(uploaded, header_row=1)
 
         df = st.session_state.df_source
+
+        
+
+        # Étape 1 : garder uniquement ce qu’il y a avant le premier tiret '-'
+        df["Name"] = df["Name"].astype(str).str.split("-", n=1).str[0]
+
+        # Étape 2 : supprimer tous les caractères spéciaux
+        df["Name"] = df["Name"].str.replace(r"[^a-zA-Z0-9\sÀ-ÿ]", "", regex=True)
+
+        st.write("🔧 Nettoyage de la colonne Name effectué : suppression après '-' et caractères spéciaux retirés.")
+
 
         log_generale,Compte_Tiers_invalide,ventes_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
