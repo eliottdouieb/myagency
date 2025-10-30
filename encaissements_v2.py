@@ -92,10 +92,6 @@ def run_api_crm(invoice,value,date):
         "ApiToken": ApiToken,
     }
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=15)
-
-    # print("HTTP:", resp.status_code)
-    ctype = (resp.headers.get("content-type") or "").lower()
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=15)
         ctype = (resp.headers.get("content-type") or "").lower()
@@ -373,20 +369,20 @@ def run_interface():
                                 
                             # skip si facture vide
                             # if not invoice_number:
-                            #     api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                            #     api_logs.append(f"⚠️ Facture sans facture — ligne ignorée.")
                             #     continue
 
                             result = run_api_crm(invoice_number, compte_value, date)
                             if result["status"] and 200 <= result["status"]  < 300:
                                 if result["success"]==False:
                                     if result["message"]=="Line not updated, same value":
-                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Account Client identique sur CRM donc pas de mise a jour")
+                                        api_logs.append(f"❌ CRM ko — facture {invoice_number} → {compte_value} (HTTP {result['status'] }) | Account Client identique sur CRM donc pas de mise a jour")
                                     else :
-                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                                        api_logs.append(f"❌ CRM ko — facture {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
                                 else:
-                                    api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
+                                    api_logs.append(f"✅ CRM ok — facture {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
                             else:
-                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
+                                api_logs.append(f"❌ CRM ko — facture {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
                 with st.expander("Détails des mises à jour CRM"):
                     for line in api_logs:

@@ -424,17 +424,16 @@ def run_interface():
                 with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
                     for i in ajout_crm:
                         result = run_api_crm(i[0], i[1], i[2])
-                        st.write(result)
                         if result["status"] and 200 <= result["status"]  < 300:
                             if result["success"]==False:
                                 if result["message"]=="Line not updated, same value":
-                                    api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
+                                    api_logs.append(f"❌ CRM ko — facture {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']}) | Account Client identique sur CRM donc pas de mise a jour")
                                 else :
-                                    api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }) | Numero de piece non existant")
+                                    api_logs.append(f"❌ CRM ko — facture {i[0]} → {i[1]} (HTTP {result['status'] }) | Numero de piece non existant")
                             else:
-                                api_logs.append(f"✅ CRM ok — numéro de pieceeee {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']})")
+                                api_logs.append(f"✅ CRM ok — factureeee {i[0]} → {i[1]} (HTTP {result['status'] }, {result['success']},{result['message']})")
                         else:
-                            api_logs.append(f"❌ CRM ko — numéro de piece {i[0]} → {i[1]} (HTTP {result['status'] }) | {result['body'] }")
+                            api_logs.append(f"❌ CRM ko — facture {i[0]} → {i[1]} (HTTP {result['status'] }) | {result['body'] }")
                         time.sleep(0.5)
 
                 with st.expander("Détails des mises à jour CRM"):

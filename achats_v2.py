@@ -92,25 +92,27 @@ def run_api_crm(num_de_piece,value,date):
         "ApiToken": ApiToken,
     }
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=15)
-
-    # print("HTTP:", resp.status_code)
-    ctype = (resp.headers.get("content-type") or "").lower()
     try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        json_body = resp.json() if "application/json" in ctype else {}
+
         return {
             "status": resp.status_code,
             "type": "Réponse JSON",
-            "body": resp.json() if "application/json" in ctype else resp.text,
-            "message":resp.json()['message'],
-            "success":resp.json()['success'],
-        }
-    except ValueError:
-        return {
-            "status": resp.status_code,
-            "type": "Réponse brute",
-            "body": resp.text,
+            "body": json_body,
+            "message": json_body.get("message", "Aucun message"),
+            "success": json_body.get("success", False),
         }
 
+    except Exception as e:
+        return {
+            "status": resp.status_code if 'resp' in locals() else 500,
+            "type": "Réponse brute ou erreur",
+            "body": resp.text if 'resp' in locals() else str(e),
+            "message": "Erreur de traitement ou JSON invalide",
+            "success": False,
+        }
 @st.cache_data(show_spinner=False, ttl=1800)
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
@@ -260,7 +262,6 @@ def check_mauvais_emplacement_debit(df):
         return False
 
 
-
 def check_lignes_comptables(df):
     df['Débit(€)']=df['Débit(€)'].fillna(0)
     df['Crédit (€)']=df['Crédit (€)'].fillna(0)
@@ -398,6 +399,7 @@ def run_interface():
             )
 
             if st.button("✅ Valider les corrections", key=validate_key):
+                api_logs = []
                 for _, r in edited.iterrows():
                     if r['Compte Tiers'] != "???":
                         idx = df[
@@ -406,7 +408,6 @@ def run_interface():
                         ].index
                         if not idx.empty:
                             df.loc[idx, ["Compte Tiers"]] = r[["Compte Tiers"]].values
-                        api_logs = []
                         with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
                             invoice_number = str(r["n° de piece"]).strip()
                             compte_value = str(r["Compte Tiers"]).strip()
@@ -425,14 +426,14 @@ def run_interface():
                                     else :
                                         api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
                                 else:
-                                    api_logs.append(f"✅ CRM ok — numéro de pieceeee {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
                             else:
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
                 with st.expander("Détails des mises à jour CRM"):
-                            for line in api_logs:
-                                st.write(line)
-                                st.write(result)
+                    for line in api_logs:
+                        st.write(line)
+
 
                 st.session_state.df_source = df
                 st.success("✅ Modifications enregistrées. Clique sur le bouton ci-dessous pour relancer le contrôle.")
