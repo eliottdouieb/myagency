@@ -354,10 +354,7 @@ def run_interface():
 
         df['Account Client']=df['Account Client'].replace('0',np.nan)
         st.write("🔧 Nettoyage de la colonne Account Client effectué : suppression des 0 inutiles.")
-        st.write(df['Account Client'].unique())
-
-        st.dataframe(df.head(45))
-
+ 
         log_generale,Compte_Tiers_invalide,encaissements_ko=check_lignes_comptables(df)
         st.session_state.df_source = df
 
