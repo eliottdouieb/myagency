@@ -352,7 +352,7 @@ def run_interface():
 
         st.write("🔧 Nettoyage de la colonne Name effectué : suppression après '-' et caractères spéciaux retirés.")
 
-        df['Account Client']=df['Account Client'].replace(0,np.nan)
+        df['Account Client']=df['Account Client'].replace('0',np.nan)
         st.write("🔧 Nettoyage de la colonne Account Client effectué : suppression des 0 inutiles.")
         st.write(df['Account Client'].unique())
 
