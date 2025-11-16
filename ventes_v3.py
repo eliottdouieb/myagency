@@ -42,11 +42,11 @@ def _to_iso_date(v) -> str | None:
         except Exception:
             return None
         
-def get_conversion_rate_frankfurter(date: str,to_currency: str, from_currency: str = "EUR") -> float:
+def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: str = "EUR" ) -> float:
 
     # Conversion du symbole si nécessaire
     try:
-        to_currency = currency_symbols[to_currency]
+        from_currency = from_currency[to_currency]
         date_iso = _to_iso_date(date)
         url = f"https://api.frankfurter.app/{date_iso}"
         params = {"from": from_currency.upper(), "to": to_currency.upper()}
