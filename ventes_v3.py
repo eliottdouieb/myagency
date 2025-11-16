@@ -46,7 +46,7 @@ def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: 
 
     # Conversion du symbole si nécessaire
     try:
-        from_currency = from_currency[to_currency]
+        from_currency = currency_symbols[from_currency]
         date_iso = _to_iso_date(date)
         url = f"https://api.frankfurter.app/{date_iso}"
         params = {"from": from_currency.upper(), "to": to_currency.upper()}
