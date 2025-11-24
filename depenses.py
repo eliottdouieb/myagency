@@ -29,6 +29,13 @@ st.markdown("""
     .block-container {
         padding-top: 2rem;
     }
+    /* Style pour séparer les étapes d'upload */
+    .upload-step {
+        border: 1px solid #e0e0e0;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -37,21 +44,16 @@ st.markdown("---")
 
 # --- Récupération Sécurisée de la Clé API ---
 try:
-    # On récupère la clé directement depuis les secrets Streamlit
     API_KEY = st.secrets["crm"]["api_key"]
 except Exception as e:
     st.error("❌ Erreur : Impossible de récupérer la clé API dans st.secrets. Vérifiez votre fichier secrets.toml.")
     st.stop()
 
 # ============================================================
-# 1. Sidebar : Uploads Uniquement
+# 1. Sidebar : Configuration Google Sheets (Secondaire)
 # ============================================================
 with st.sidebar:
-    st.header("📂 Données")
-    
-    st.subheader("Import des fichiers")
-    uploaded_revolut = st.file_uploader("Fichier Revolut (CSV)", type=["csv"])
-    uploaded_bo = st.file_uploader("Export BackOffice (XLSX)", type=["xlsx"])
+    st.header("⚙️ Configuration Export")
     
     st.subheader("Google Sheets (Optionnel)")
     uploaded_creds = st.file_uploader("Fichier credentials.json", type=["json"])
@@ -61,7 +63,7 @@ with st.sidebar:
     mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
 
 # ============================================================
-# 2. Fonctions Utilitaires (Cache & Logique)
+# 2. Fonctions Utilitaires (Cache & Logique - INCHANGÉES)
 # ============================================================
 
 @st.cache_data
@@ -111,7 +113,6 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
     
     raw_content = response.choices[0].message.content.strip()
     
-    # Nettoyage markdown si présent
     if raw_content.startswith("```"):
         parts = raw_content.split("```")
         if len(parts) >= 2:
@@ -152,11 +153,27 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     return df_rev_clean, df_bo_clean
 
 # ============================================================
-# 3. Logique Principale (Exécution)
+# 3. Logique Principale (Interface Centrale)
 # ============================================================
 def run_interface():
-    # On vérifie uniquement la présence des fichiers, la clé API est déjà chargée
+    
+    st.subheader("📥 Étape 1 : Import Revolut")
+    uploaded_revolut = st.file_uploader("Sélectionnez le fichier CSV Revolut", type=["csv"], key="u_rev")
+    
+    uploaded_bo = None # Initialisation
+    
+    # On n'affiche l'étape 2 que si l'étape 1 est faite
+    if uploaded_revolut:
+        st.success("✅ Fichier Revolut chargé.")
+        st.markdown("---")
+        
+        st.subheader("📥 Étape 2 : Import BackOffice")
+        uploaded_bo = st.file_uploader("Sélectionnez l'export Excel BackOffice", type=["xlsx"], key="u_bo")
+        
+    # Lancement du traitement si les deux sont là
     if uploaded_revolut and uploaded_bo:
+        st.success("✅ Fichier BackOffice chargé. Lancement de l'analyse...")
+        st.markdown("---")
         
         # 1. Chargement
         df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
@@ -171,7 +188,6 @@ def run_interface():
             st.stop()
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
-            # On utilise la variable globale API_KEY chargée au début
             match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
             status.write("Mapping terminé !")
             status.update(label="IA terminée", state="complete", expanded=False)
@@ -179,7 +195,7 @@ def run_interface():
         # 3. Nettoyage
         df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
 
-        # 4. Moteur de Rapprochement (Logique inchangée)
+        # 4. Moteur de Rapprochement
         used_rev = set()
         used_bo = set()
 
@@ -190,35 +206,31 @@ def run_interface():
             used_rev.update(df["idx_rev"].dropna().unique())
             used_bo.update(df["idx_bo"].dropna().unique())
 
-        # --- Match 1: Exact ---
+        # --- Algorithmes de matching ---
         matches_ok = df_rev_clean.merge(
             df_bo_clean, left_on=["Date", "Montant", "Libelle_match"], right_on=["Date", "Montant", "Libelle"],
             how="inner", suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
         maj_sets(matches_ok)
 
-        # --- Match 2: Sans Libellé ---
         matches_sans_libelle = filtre_nouveaux(df_rev_clean.merge(
             df_bo_clean, left_on=["Date", "Montant"], right_on=["Date", "Montant"],
             how="inner", suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"]))
         maj_sets(matches_sans_libelle)
 
-        # --- Match 3: Sans Date ---
         matches_sans_date = filtre_nouveaux(df_rev_clean.merge(
             df_bo_clean, left_on=["Montant", "Libelle_match"], right_on=["Montant", "Libelle"],
             how="inner", suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"]))
         maj_sets(matches_sans_date)
 
-        # --- Match 4: Sans Montant ---
         matches_sans_montant = filtre_nouveaux(df_rev_clean.merge(
             df_bo_clean, left_on=["Date", "Libelle_match"], right_on=["Date", "Libelle"],
             how="inner", suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"]))
         maj_sets(matches_sans_montant)
 
-        # --- Match 5: Potentiel (Date +/- 3 jours) ---
         m_pot = df_rev_clean.merge(
             df_bo_clean, left_on=["Libelle_match"], right_on=["Libelle"],
             how="inner", suffixes=("_rev", "_bo")
@@ -227,7 +239,6 @@ def run_interface():
         matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
         maj_sets(matches_potentiel)
 
-        # --- KO ---
         matches_ko_rev = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
         matches_ko_bo = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
 
@@ -320,7 +331,7 @@ def run_interface():
                         st.error(f"Erreur export : {e}")
             else:
                 st.info("Veuillez uploader votre fichier `credentials.json` dans la barre latérale pour activer l'export.")
-
-    else:
-        st.info("👈 Veuillez uploader les fichiers Revolut et BackOffice pour commencer.")
-
+    
+    # Message d'accueil si rien n'est chargé
+    elif not uploaded_revolut:
+        st.info("👈 Veuillez commencer par charger le fichier Revolut ci-dessus.")
