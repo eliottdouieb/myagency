@@ -38,3 +38,4 @@ urllib3==2.5.0
 watchdog==6.0.0
 xlsx2csv==0.8.4
 xlsxwriter==3.2.5
+openai>=1.60.0
