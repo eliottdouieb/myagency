@@ -9,7 +9,7 @@ import gspread
 import plotly.express as px
 
 # ============================================================
-# 0. Configuration de la page & Style
+# 0. Configuration de la page & Style & Secrets
 # ============================================================
 st.set_page_config(
     page_title="Rapprochement Bancaire IA",
@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personnalisé pour embellir l'interface
+# CSS personnalisé
 st.markdown("""
     <style>
     .stMetric {
@@ -35,14 +35,19 @@ st.markdown("""
 st.title("💳 Rapprochement Bancaire Intelligent")
 st.markdown("---")
 
+# --- Récupération Sécurisée de la Clé API ---
+try:
+    # On récupère la clé directement depuis les secrets Streamlit
+    API_KEY = st.secrets["crm"]["api_key"]
+except Exception as e:
+    st.error("❌ Erreur : Impossible de récupérer la clé API dans st.secrets. Vérifiez votre fichier secrets.toml.")
+    st.stop()
+
 # ============================================================
-# 1. Sidebar : Configuration & Uploads
+# 1. Sidebar : Uploads Uniquement
 # ============================================================
 with st.sidebar:
-    st.header("📂 Données & Configuration")
-    
-    # API Key OpenAI (Sécurité : ne pas la laisser en dur)
-    api_key = st.secrets["crm"]["api_key"]
+    st.header("📂 Données")
     
     st.subheader("Import des fichiers")
     uploaded_revolut = st.file_uploader("Fichier Revolut (CSV)", type=["csv"])
@@ -55,7 +60,6 @@ with st.sidebar:
     # Dictionnaire Email (Code existant)
     mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
 
-
 # ============================================================
 # 2. Fonctions Utilitaires (Cache & Logique)
 # ============================================================
@@ -66,9 +70,8 @@ def load_data(revolut_file, bo_file):
     df_rev = pd.read_csv(revolut_file)
     df_rev['email'] = df_rev['Payer'].map(mail_mapping)
     
-    # --- BackOffice (Logique Xlsx2csv conservée) ---
+    # --- BackOffice ---
     buffer = StringIO()
-    # On lit le buffer binaire du file_uploader et on le passe à Xlsx2csv
     Xlsx2csv(bo_file, outputencoding="utf-8").convert(buffer)
     buffer.seek(0)
     df_bo = pd.read_csv(buffer, skiprows=1)
@@ -89,7 +92,6 @@ def build_prompt(revolut_labels, backoffice_labels):
     BackOffice labels: {json.dumps(backoffice_labels, ensure_ascii=False)}
     """
 
-# On met le cache pour éviter de payer l'API à chaque petit changement d'UI
 @st.cache_data(show_spinner=False)
 def get_ai_mapping(api_key, rev_labels, bo_labels):
     if not api_key:
@@ -99,7 +101,7 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
     prompt = build_prompt(rev_labels, bo_labels)
     
     response = client.chat.completions.create(
-        model="gpt-4o-mini", # Utilisation du modèle mini recommandée pour le coût/vitesse
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "Tu es un assistant expert en rapprochement comptable."},
             {"role": "user", "content": prompt},
@@ -153,14 +155,15 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
 # 3. Logique Principale (Exécution)
 # ============================================================
 def run_interface():
-    if uploaded_revolut and uploaded_bo and api_key:
+    # On vérifie uniquement la présence des fichiers, la clé API est déjà chargée
+    if uploaded_revolut and uploaded_bo:
         
         # 1. Chargement
         df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
         
         # 2. Appel IA
         revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
-        # Filtrage simple pour BO pour éviter d'envoyer trop de bruit si nécessaire
+        
         if "Libelle" in df_bo_raw.columns:
             backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
         else:
@@ -168,7 +171,8 @@ def run_interface():
             st.stop()
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
-            match_libelle = get_ai_mapping(api_key, revolut_labels, backoffice_labels)
+            # On utilise la variable globale API_KEY chargée au début
+            match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
             status.write("Mapping terminé !")
             status.update(label="IA terminée", state="complete", expanded=False)
 
@@ -277,7 +281,6 @@ def run_interface():
             st.error("Ces transactions Revolut n'ont pas trouvé de correspondance.")
             st.dataframe(matches_ko_rev)
             
-            # Bouton téléchargement CSV direct
             csv_ko = matches_ko_rev.to_csv(index=False).encode('utf-8')
             st.download_button("Télécharger CSV KO Revolut", data=csv_ko, file_name="revolut_ko.csv", mime="text/csv")
 
@@ -291,8 +294,6 @@ def run_interface():
             if uploaded_creds:
                 if st.button("🚀 Lancer l'export GSheet"):
                     try:
-                        # Création d'un fichier temporaire pour gspread (car il attend un chemin fichier)
-                        # Ou utilisation de from_service_account_info si on lit le json
                         creds_json = json.load(uploaded_creds)
                         
                         gc = gspread.service_account_from_dict(creds_json)
@@ -320,7 +321,6 @@ def run_interface():
             else:
                 st.info("Veuillez uploader votre fichier `credentials.json` dans la barre latérale pour activer l'export.")
 
-    elif not api_key:
-        st.warning("👈 Veuillez entrer votre clé API OpenAI dans la barre latérale.")
     else:
         st.info("👈 Veuillez uploader les fichiers Revolut et BackOffice pour commencer.")
+
