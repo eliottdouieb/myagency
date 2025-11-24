@@ -41,4 +41,4 @@ xlsxwriter==3.2.5
 openai>=1.60.0
 gspread>=6.0.0
 google-auth>=2.30.0
-
+plotly>=5.24.0
