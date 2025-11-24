@@ -11,3 +11,4 @@
 /__pycache__
 /~$Export achats MYBACKOFFICE.xlsx
 /~$Export encaissement MYBACKOFFICE.xlsx
+/api.streamlit/secrets.toml
