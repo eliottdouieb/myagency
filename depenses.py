@@ -42,7 +42,7 @@ with st.sidebar:
     st.header("📂 Données & Configuration")
     
     # API Key OpenAI (Sécurité : ne pas la laisser en dur)
-    api_key = st.text_input("Clé API OpenAI", value="", type="password")
+    api_key = st.secrets["crm"]["api_key"]
     
     st.subheader("Import des fichiers")
     uploaded_revolut = st.file_uploader("Fichier Revolut (CSV)", type=["csv"])
