@@ -189,8 +189,8 @@ def run_interface():
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
             match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
-            status.write("Mapping terminé !")
-            status.update(label="IA terminée", state="complete", expanded=False)
+            status.write(match_libelle)
+            status.update(label="IA terminée - Mapping terminé !", state="complete", expanded=False)
 
         # 3. Nettoyage
         df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
