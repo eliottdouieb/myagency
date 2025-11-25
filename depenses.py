@@ -258,34 +258,26 @@ def run_interface():
         col4.metric("KO BackOffice", len(matches_ko_bo), delta_color="inverse")
 
         # Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Vue d'ensemble", 
+        tab2, tab3, tab4, tab5 = st.tabs([
             "✅ Matches Détails", 
             "⚠️ KO Revolut (A traiter)", 
             "⚠️ KO BackOffice",
-            "📤 Export GSheet"
+            "📤 Envoyer les relances des depenses manquantes"
         ])
 
-        with tab1:
-            st.subheader("Répartition des méthodes de matching")
-            data_dist = pd.DataFrame({
-                "Méthode": ["Exact", "Sans Libellé", "Sans Date", "Sans Montant", "Potentiel"],
-                "Nombre": [len(matches_ok), len(matches_sans_libelle), len(matches_sans_date), len(matches_sans_montant), len(matches_potentiel)]
-            })
-            fig = px.bar(data_dist, x="Méthode", y="Nombre", color="Méthode", title="Efficacité des algorithmes")
-            st.plotly_chart(fig, use_container_width=True)
+
 
         with tab2:
             st.info("Voici les transactions rapprochées automatiquement.")
-            with st.expander(f"Matchs Parfaits ({len(matches_ok)})", expanded=True):
+            with st.expander(f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})", expanded=True):
                 st.dataframe(matches_ok)
-            with st.expander(f"Matchs Sans Libellé ({len(matches_sans_libelle)})"):
+            with st.expander(f"Matchs Sans Libellé - meme montant et meme date ({len(matches_sans_libelle)})"):
                 st.dataframe(matches_sans_libelle)
-            with st.expander(f"Matchs Sans Date ({len(matches_sans_date)})"):
+            with st.expander(f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"):
                 st.dataframe(matches_sans_date)
-            with st.expander(f"Matchs Sans Montant ({len(matches_sans_montant)})"):
+            with st.expander(f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"):
                 st.dataframe(matches_sans_montant)
-            with st.expander(f"Matchs Potentiels ({len(matches_potentiel)})"):
+            with st.expander(f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"):
                 st.dataframe(matches_potentiel)
 
         with tab3:
@@ -334,4 +326,4 @@ def run_interface():
     
     # Message d'accueil si rien n'est chargé
     elif not uploaded_revolut:
-        st.info("👈 Veuillez commencer par charger le fichier Revolut ci-dessus.")
+        st.info(" Veuillez commencer par charger le fichier Revolut ci-dessus.")
