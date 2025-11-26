@@ -208,6 +208,48 @@ def run_interface():
             status.write(match_libelle)
             status.update(label="IA terminée - Mapping terminé !", state="complete", expanded=False)
 
+        
+        # 3. INTERFACE DE VÉRIFICATION DU MAPPING (NOUVELLE ÉTAPE)
+        if 'final_mapping_dict' not in st.session_state:
+            st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
+            
+            # Transformation du dict en DF pour l'éditeur
+            raw_map = st.session_state['ai_mapping_raw']
+            df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO Suggéré"])
+            df_mapping.insert(0, "Valide", True)
+
+            # Éditeur
+            edited_mapping = st.data_editor(
+                df_mapping,
+                column_config={
+                    "Valide": st.column_config.CheckboxColumn("Accepter ?", default=True),
+                    "Libelle Revolut": st.column_config.TextColumn("Libellé Revolut", disabled=True),
+                    "Libelle BO Suggéré": st.column_config.TextColumn("Correspondance BO", disabled=True),
+                },
+                use_container_width=True,
+                hide_index=True,
+                key="mapping_editor"
+            )
+
+            # Bouton de validation
+            if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
+                # Construction du dictionnaire final
+                final_dict = {}
+                for index, row in edited_mapping.iterrows():
+                    if row["Valide"]:
+                        final_dict[row["Libelle Revolut"]] = row["Libelle BO Suggéré"]
+                    else:
+                        # Si décoché, on force "match non trouve"
+                        final_dict[row["Libelle Revolut"]] = "match non trouve"
+                
+                st.session_state['final_mapping_dict'] = final_dict
+                st.rerun() # On recharge pour passer à l'étape suivante
+
+        # 4. Exécution du Rapprochement (Une fois le mapping validé)
+        else:
+            st.success("✅ Mapping validé. Calcul des rapprochements...")
+            match_libelle = st.session_state['final_mapping_dict']
+
         # 2. Nettoyage
         df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
 
