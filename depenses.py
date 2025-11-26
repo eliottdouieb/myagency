@@ -215,8 +215,9 @@ def run_interface():
         
         # Transformation du dict en DF pour l'éditeur
         raw_map = match_libelle
-        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO Suggéré"])
+        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
         df_mapping.insert(0, "Valide", True)
+        df_mapping=df_mapping[df_mapping['Libelle BO']!='match non trouvé']
 
         # Éditeurr
         edited_mapping = st.data_editor(
