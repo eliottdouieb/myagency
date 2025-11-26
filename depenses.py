@@ -383,7 +383,8 @@ def run_interface():
                             df_export["Date"] = df_export["Date"].dt.strftime("%Y-%m-%d")
                         df_export = df_export.fillna("")
                         
-                        ws.append_rows(df_export.values.tolist())
+                        # ws.append_rows(df_export.values.tolist())
+                        ws.insert_rows(df_export.values.tolist(), row=2)
                         st.success(f"✅ {len(df_export)} lignes exportées avec succès !")
                     except Exception as e:
                         st.error(f"Erreur export : {e}")
