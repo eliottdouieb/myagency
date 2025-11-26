@@ -132,7 +132,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     
     return df_rev_clean, df_bo_clean
 
-# Fonction Helper pour afficher les data_editor proprement
+# Fonction Helper pour afficher les data_editor proprementt
 def display_interactive_table(df, key_suffix):
     """Prépare le DF pour l'édition : Ajout colonne Valide, Formatage dates, Config colonnes"""
     if df.empty:
