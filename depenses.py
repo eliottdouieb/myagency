@@ -74,14 +74,17 @@ def load_data(revolut_file, bo_file):
     return df_rev, df_bo
 
 def build_prompt(revolut_labels, backoffice_labels):
-    return f"""
-    Tu es un assistant spécialisé en rapprochement comptable.
-    Objectif : Pour chaque libellé Revolut, trouve le libellé Back Office le plus probable.
-    Retourne UNIQUEMENT un JSON valide : {{"Label Rev": "Label BO", ...}}
-    
-    Revolut labels: {json.dumps(revolut_labels, ensure_ascii=False)}
-    BackOffice labels: {json.dumps(backoffice_labels, ensure_ascii=False)}
-    """
+        return f"""
+        Tu es un assistant spécialisé en rapprochement comptable.
+        On te donne :
+        1) La liste des libellés Revolut (revolut_labels).
+        2) La liste des libellés Back Office (backoffice_labels).
+        Objectif : Pour chaque libellé Revolut, trouve le libellé Back Office le plus probable.
+        Si pas sûr, retourne "match non trouve".
+        Retourne UNIQUEMENT un JSON valide : {{"Label Rev": "Label BO", ...}}
+        Revolut labels: {json.dumps(revolut_labels, ensure_ascii=False)}
+        BackOffice labels: {json.dumps(backoffice_labels, ensure_ascii=False)}
+        """
 
 @st.cache_data(show_spinner=False)
 def get_ai_mapping(api_key, rev_labels, bo_labels):
