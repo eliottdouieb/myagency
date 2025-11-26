@@ -202,7 +202,8 @@ def run_interface():
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
             match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
-            status.update(label="IA terminée !", state="complete", expanded=False)
+            status.write(match_libelle)
+            status.update(label="IA terminée - Mapping terminé !", state="complete", expanded=False)
 
         # 2. Nettoyage
         df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
@@ -283,28 +284,28 @@ def run_interface():
             # Sécurisation si colonnes manquantes
             safe_cols = lambda df: [c for c in base_cols if c in df.columns]
 
-            with st.expander(f"Matchs Parfaits ({len(matches_ok)})", expanded=True):
+            with st.expander(f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})", expanded=True):
                 # On prépare le DF avec les colonnes voulues
                 df_ok_view = matches_ok[safe_cols(matches_ok)]
                 # On affiche l'éditeur interactif
                 edited_ok = display_interactive_table(df_ok_view, "ok")
 
-            with st.expander(f"Matchs Sans Libellé ({len(matches_sans_libelle)})"):
+            with st.expander(f"Matchs Sans Libellé - meme montant et meme date ({len(matches_sans_libelle)})"):
                 df_sl_view = matches_sans_libelle[safe_cols(matches_sans_libelle)]
                 edited_sl = display_interactive_table(df_sl_view, "sl")
 
-            with st.expander(f"Matchs Sans Date ({len(matches_sans_date)})"):
+            with st.expander(f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"):
                 # Colonnes spécifiques pour Sans Date
                 cols_sd = ['idx_rev', 'idx_bo', 'Date_rev', 'Date_bo', 'Montant', 'Description', 'Libelle', 'Payer', 'email']
                 df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
                 edited_sd = display_interactive_table(df_sd_view, "sd")
 
-            with st.expander(f"Matchs Sans Montant ({len(matches_sans_montant)})"):
+            with st.expander(f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"):
                 cols_sm = ['idx_rev', 'idx_bo', 'Date', 'Montant_rev', 'Montant_bo', 'Description', 'Libelle', 'Payer', 'email']
                 df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
                 edited_sm = display_interactive_table(df_sm_view, "sm")
 
-            with st.expander(f"Matchs Potentiels ({len(matches_potentiel)})"):
+            with st.expander(f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"):
                 cols_pot = ['idx_rev', 'idx_bo', 'Date_rev', 'Date_bo', 'Montant_rev', 'Montant_bo', 'Description', 'Libelle', 'Payer', 'email']
                 df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
                 edited_pot = display_interactive_table(df_pot_view, "pot")
