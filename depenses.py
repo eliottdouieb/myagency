@@ -42,21 +42,21 @@ st.markdown("""
 st.title("💳 Rapprochement Bancaire Intelligent")
 st.markdown("---")
 
-# --- Récupération Sécurisée de la Clé API ---
+# --- Récupération Sécurisée de la Clé API OpenAI ---
 try:
     API_KEY = st.secrets["crm"]["api_key"]
 except Exception as e:
-    st.error("❌ Erreur : Impossible de récupérer la clé API dans st.secrets. Vérifiez votre fichier secrets.toml.")
+    st.error("❌ Erreur : Impossible de récupérer la clé API OpenAI. Vérifiez [crm] api_key dans secrets.toml.")
     st.stop()
 
 # ============================================================
-# 1. Sidebar : Configuration Google Sheets (Secondaire)
+# 1. Sidebar : Configuration Export (Simplifiée)
 # ============================================================
 with st.sidebar:
     st.header("⚙️ Configuration Export")
     
-    st.subheader("Google Sheets (Optionnel)")
-    uploaded_creds = st.file_uploader("Fichier credentials.json", type=["json"])
+    st.subheader("Google Sheets")
+    # Plus de demande de credentials.json
     sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
     
     # Dictionnaire Email (Code existant)
@@ -258,16 +258,14 @@ def run_interface():
         col4.metric("KO BackOffice", len(matches_ko_bo), delta_color="inverse")
 
         # Tabs
-        tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4 = st.tabs([
             "✅ Matches Détails", 
             "⚠️ KO Revolut (A traiter)", 
             "⚠️ KO BackOffice",
             "📤 Envoyer les relances des depenses manquantes"
         ])
 
-
-
-        with tab2:
+        with tab1:
             st.info("Voici les transactions rapprochées automatiquement.")
             with st.expander(f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})", expanded=True):
                 st.dataframe(matches_ok)
@@ -280,26 +278,29 @@ def run_interface():
             with st.expander(f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"):
                 st.dataframe(matches_potentiel)
 
-        with tab3:
+        with tab2:
             st.error("Ces transactions Revolut n'ont pas trouvé de correspondance.")
             st.dataframe(matches_ko_rev)
             
             csv_ko = matches_ko_rev.to_csv(index=False).encode('utf-8')
             st.download_button("Télécharger CSV KO Revolut", data=csv_ko, file_name="revolut_ko.csv", mime="text/csv")
 
-        with tab4:
+        with tab3:
             st.warning("Ces écritures BackOffice sont orphelines.")
             st.dataframe(matches_ko_bo)
 
-        with tab5:
+        with tab4:
             st.header("Export vers Google Sheets")
             
-            if uploaded_creds:
+            # Vérification de l'existence des secrets
+            if "gcp_service_account" in st.secrets:
                 if st.button("🚀 Lancer l'export GSheet"):
                     try:
-                        creds_json = json.load(uploaded_creds)
+                        # Conversion de l'objet AttrDict de Streamlit en dictionnaire standard Python
+                        creds_dict = dict(st.secrets["gcp_service_account"])
                         
-                        gc = gspread.service_account_from_dict(creds_json)
+                        # Connexion gspread avec le dict des secrets
+                        gc = gspread.service_account_from_dict(creds_dict)
                         sh = gc.open(sheet_name)
                         
                         try:
@@ -322,8 +323,9 @@ def run_interface():
                     except Exception as e:
                         st.error(f"Erreur export : {e}")
             else:
-                st.info("Veuillez uploader votre fichier `credentials.json` dans la barre latérale pour activer l'export.")
+                st.warning("⚠️ Configuration manquante : Veuillez ajouter la section [gcp_service_account] dans vos secrets Streamlit.")
     
     # Message d'accueil si rien n'est chargé
     elif not uploaded_revolut:
         st.info(" Veuillez commencer par charger le fichier Revolut ci-dessus.")
+
