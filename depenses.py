@@ -207,6 +207,7 @@ def run_interface():
             match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
             status.write(match_libelle)
             status.update(label="IA terminée - Mapping terminé !", state="complete", expanded=False)
+            st.session_state['ai_mapping_raw'] = match_libelle
 
         
         # 3. INTERFACE DE VÉRIFICATION DU MAPPING (NOUVELLE ÉTAPE)
