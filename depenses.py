@@ -232,7 +232,7 @@ def run_interface():
             key="mapping_editor"
         )
 
-        # Bouton de validation
+        # Bouton de validationn
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
             # Construction du dictionnaire final
             for index, row in edited_mapping.iterrows():
