@@ -253,9 +253,11 @@ def run_interface():
         st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
         st.stop()
 
-    # === Gestion du state pour le mapping & les DF clean ===
-    if "mapping_validated" not in st.session_state:
-        st.session_state["mapping_validated"] = False
+    # =========================
+    # Gestion du state
+    # =========================
+    if "phase" not in st.session_state:
+        st.session_state["phase"] = "mapping"   # "mapping" ou "dashboard"
     if "match_libelle" not in st.session_state:
         st.session_state["match_libelle"] = None
     if "df_rev_clean" not in st.session_state:
@@ -264,9 +266,9 @@ def run_interface():
         st.session_state["df_bo_clean"] = None
 
     # ============================================================
-    # ÉTAPE 3 : MAPPING IA (affiché tant qu'il n'est pas validé)
+    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
-    if not st.session_state["mapping_validated"]:
+    if st.session_state["phase"] == "mapping":
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
             if st.session_state["match_libelle"] is None:
@@ -318,17 +320,17 @@ def run_interface():
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
 
-            # On marque le mapping comme validé
-            st.session_state["mapping_validated"] = True
+            # Changement de phase : on ne reviendra plus au mapping
+            st.session_state["phase"] = "dashboard"
 
-            # On relance pour entrer dans le bloc "dashboard" directement
+            # On relance pour entrer dans la phase dashboard directement
             st.rerun()
 
-        # Tant que le mapping n'est pas validé, on ne va pas plus loin
+        # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
         return
 
     # ============================================================
-    # ÉTAPE 4 : DASHBOARD & MATCHING (mapping déjà validé)
+    # PHASE 2 : DASHBOARD & MATCHING (phase == "dashboard")
     # ============================================================
 
     # On récupère les objets depuis le state
@@ -416,11 +418,10 @@ def run_interface():
     matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
     maj_sets(matches_potentiel)
 
-    # KO initiaux (Calculés avant intervention utilisateur)
+    # KO initiaux
     matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
     matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
 
-    # --- Gestion du State pour les KO finaux ---
     if "ko_rev_final" not in st.session_state:
         st.session_state["ko_rev_final"] = matches_ko_rev_initial
     if "ko_bo_final" not in st.session_state:
@@ -430,10 +431,7 @@ def run_interface():
         st.session_state["ko_rev_final"] = matches_ko_rev_initial
         st.session_state["ko_bo_final"] = matches_ko_bo_initial
 
-    # ============================================================
-    # 4. Affichage Dashboard (exactement comme tu avais)
-    # ============================================================
-
+    # KPIs + tabs (tu peux garder ton code existant ici)
     col1, col2, col3, col4 = st.columns(4)
     total_rev = len(df_rev_clean)
     total_matched = len(used_rev)
@@ -445,11 +443,14 @@ def run_interface():
     col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
 
     tab1, tab2, tab3, tab4 = st.tabs([
-    "✅ Matches & Validation",
-    "⚠️ KO Revolut (A traiter)",
-    "⚠️ KO BackOffice",
-    "📤 Export GSheet"
-])
+        "✅ Matches & Validation",
+        "⚠️ KO Revolut (A traiter)",
+        "⚠️ KO BackOffice",
+        "📤 Export GSheet"
+    ])
+
+
+    # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
 
     # --- TAB 1 : Tableaux Interactifs --- (tu peux garder strictement ton code actuel)
     # (reprends ici ton bloc tab1 / tab2 / tab3 / tab4 inchangé)
