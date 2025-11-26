@@ -291,11 +291,43 @@ def run_interface():
 
                 st.dataframe(df_affichage_matches_sans_libelle)
             with st.expander(f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"):
-                st.dataframe(matches_sans_date)
+                df_affichage_matches_sans_date = (
+                matches_sans_date[
+                    ['Date_rev','Date_bo','Montant', 'Description', 'Libelle', 'Payer',
+                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                ]
+                .rename(columns={
+                    "Date_rev":"Date_revolut",
+                    "Description": "Libelle BO",
+                    "Libelle": "Libelle Revolut"}))
+
+                st.dataframe(df_affichage_matches_sans_date)
+                
             with st.expander(f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"):
-                st.dataframe(matches_sans_montant)
+                df_affichage_matches_sans_montant = (
+                matches_sans_montant[
+                    ['Date','Montant_rev',"Montant_bo",'Description', 'Libelle', 'Payer',
+                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                ]
+                .rename(columns={
+                    "Montant_rev":"Montant_revolut",
+                    "Description": "Libelle BO",
+                    "Libelle": "Libelle Revolut"}))
+
+                st.dataframe(df_affichage_matches_sans_montant)
             with st.expander(f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"):
-                st.dataframe(matches_potentiel)
+                df_affichage_matches_potentiel = (
+                matches_potentiel[
+                    ['Date_rev',"Date_bo",'Montant_rev',"Montant_bo",'Description', 'Libelle', 'Payer',
+                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                ]
+                .rename(columns={
+                    "Date_rev":"Date_revolut",
+                    "Montant_rev":"Montant_revolut",
+                    "Description": "Libelle BO",
+                    "Libelle": "Libelle Revolut"}))
+
+                st.dataframe(df_affichage_matches_potentiel)
 
         with tab2:
             st.error("Ces transactions Revolut n'ont pas trouvé de correspondance.")
