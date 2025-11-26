@@ -267,68 +267,94 @@ def run_interface():
 
         with tab1:
             st.info("Voici les transactions rapprochées automatiquement.")
+
+            # --- 1. Matchs Parfaits ---
             with st.expander(f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})", expanded=True):
                 df_affichage_matches_ok = (
-                matches_ok[
-                    ['Date', 'Montant', 'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
-                ]
-                .rename(columns={
-                    "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"}))
-
+                    matches_ok[
+                        ['Date', 'Montant', 'Description', 'Libelle', 'Payer',
+                         'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                    ]
+                    # On convertit la date au format JJ/MM/AAAA
+                    .assign(Date=lambda x: x['Date'].dt.strftime('%d/%m/%Y'))
+                    .rename(columns={
+                        "Description": "Libelle BO",
+                        "Libelle": "Libelle Revolut"
+                    })
+                )
                 st.dataframe(df_affichage_matches_ok)
 
+            # --- 2. Sans Libellé ---
             with st.expander(f"Matchs Sans Libellé - meme montant et meme date ({len(matches_sans_libelle)})"):
                 df_affichage_matches_sans_libelle = (
-                matches_sans_libelle[
-                    ['Date', 'Montant', 'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
-                ]
-                .rename(columns={
-                    "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"}))
-
+                    matches_sans_libelle[
+                        ['Date', 'Montant', 'Description', 'Libelle', 'Payer',
+                         'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                    ]
+                    .assign(Date=lambda x: x['Date'].dt.strftime('%d/%m/%Y'))
+                    .rename(columns={
+                        "Description": "Libelle BO",
+                        "Libelle": "Libelle Revolut"
+                    })
+                )
                 st.dataframe(df_affichage_matches_sans_libelle)
+
+            # --- 3. Sans Date ---
             with st.expander(f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"):
                 df_affichage_matches_sans_date = (
-                matches_sans_date[
-                    ['Date_rev','Date_bo','Montant', 'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
-                ]
-                .rename(columns={
-                    "Date_rev":"Date_revolut",
-                    "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"}))
-
+                    matches_sans_date[
+                        ['Date_rev', 'Date_bo', 'Montant', 'Description', 'Libelle', 'Payer',
+                         'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                    ]
+                    # Ici on a deux dates à formater (Rev et BO)
+                    .assign(
+                        Date_rev=lambda x: x['Date_rev'].dt.strftime('%d/%m/%Y'),
+                        Date_bo=lambda x: x['Date_bo'].dt.strftime('%d/%m/%Y')
+                    )
+                    .rename(columns={
+                        "Date_rev": "Date_revolut",
+                        "Description": "Libelle BO",
+                        "Libelle": "Libelle Revolut"
+                    })
+                )
                 st.dataframe(df_affichage_matches_sans_date)
-                
+
+            # --- 4. Sans Montant ---
             with st.expander(f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"):
                 df_affichage_matches_sans_montant = (
-                matches_sans_montant[
-                    ['Date','Montant_rev',"Montant_bo",'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
-                ]
-                .rename(columns={
-                    "Montant_rev":"Montant_revolut",
-                    "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"}))
-
+                    matches_sans_montant[
+                        ['Date', 'Montant_rev', "Montant_bo", 'Description', 'Libelle', 'Payer',
+                         'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                    ]
+                    .assign(Date=lambda x: x['Date'].dt.strftime('%d/%m/%Y'))
+                    .rename(columns={
+                        "Montant_rev": "Montant_revolut",
+                        "Description": "Libelle BO",
+                        "Libelle": "Libelle Revolut"
+                    })
+                )
                 st.dataframe(df_affichage_matches_sans_montant)
+
+            # --- 5. Potentiels ---
             with st.expander(f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"):
                 df_affichage_matches_potentiel = (
-                matches_potentiel[
-                    ['Date_rev',"Date_bo",'Montant_rev',"Montant_bo",'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
-                ]
-                .rename(columns={
-                    "Date_rev":"Date_revolut",
-                    "Montant_rev":"Montant_revolut",
-                    "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"}))
-
+                    matches_potentiel[
+                        ['Date_rev', "Date_bo", 'Montant_rev', "Montant_bo", 'Description', 'Libelle', 'Payer',
+                         'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                    ]
+                    .assign(
+                        Date_rev=lambda x: x['Date_rev'].dt.strftime('%d/%m/%Y'),
+                        Date_bo=lambda x: x['Date_bo'].dt.strftime('%d/%m/%Y')
+                    )
+                    .rename(columns={
+                        "Date_rev": "Date_revolut",
+                        "Montant_rev": "Montant_revolut",
+                        "Description": "Libelle BO",
+                        "Libelle": "Libelle Revolut"
+                    })
+                )
                 st.dataframe(df_affichage_matches_potentiel)
-
+                
         with tab2:
             st.error("Ces transactions Revolut n'ont pas trouvé de correspondance.")
             st.dataframe(matches_ko_rev)
