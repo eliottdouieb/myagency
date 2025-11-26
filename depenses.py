@@ -268,13 +268,17 @@ def run_interface():
         with tab1:
             st.info("Voici les transactions rapprochées automatiquement.")
             with st.expander(f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})", expanded=True):
-                st.dataframe(matches_ok[
-                    'Date', 'Montant', 'Description', 'Libelle', 'Payer',
-                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte'].rename(columns={
+                df_affichage = (
+                matches_ok[
+                    ['Date', 'Montant', 'Description', 'Libelle', 'Payer',
+                    'Exchange rate', 'Orig currency', 'Orig amount', 'email', 'Compte']
+                ]
+                .rename(columns={
                     "Description": "Libelle BO",
-                    "Libelle": "Libelle Revolut"
-                })
-                )
+                    "Libelle": "Libelle Revolut"}))
+
+            st.dataframe(df_affichage)
+
             with st.expander(f"Matchs Sans Libellé - meme montant et meme date ({len(matches_sans_libelle)})"):
                 st.dataframe(matches_sans_libelle)
             with st.expander(f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"):
