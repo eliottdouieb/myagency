@@ -142,7 +142,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_rev_clean = df_rev.copy()
     df_rev_clean = df_rev_clean[df_rev_clean["Type"] == "CARD_PAYMENT"]
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
-    df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Amount"] * (-1), errors="coerce")
+    df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"] * (-1), errors="coerce")
 
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
