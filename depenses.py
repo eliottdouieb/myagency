@@ -57,7 +57,56 @@ except Exception as e:
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
 #     sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
-mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
+mail_mapping = {
+    "Aurelie Goncalves": {
+        "mail": "aurelie@myagency.group",
+        "mail_binome": "sanaa@myagency.group"
+    },
+    "Fabrice Alcaud": {
+        "mail": "fabrice@myagency.group",
+        "mail_binome": "coline@myagency.group"
+    },
+    "Lara Dogliotti": {
+        "mail": "lara@myagency.group",
+        "mail_binome": "sofia@myagency.group"
+    },
+    "Mathilde Noemie Crystal Marie Amelie Bouffet": {
+        "mail": "mathilde@myagency.group",
+        "mail_binome": "julie@myagency.group"
+    },
+    "Mathile Severine Alonso": {
+        "mail": "mathildea@myagency.group",
+        "mail_binome": None
+    },
+    "Nourithe Guila Serraf": {
+        "mail": "nourithe@myagency.group",
+        "mail_binome": "alina@myagency.group"
+    },
+    "Pierre Olivier Marie Fallourd": {
+        "mail": "pierref@myagency.group",
+        "mail_binome": "anouchka@myagency.group"
+    },
+    "Ruben Abitbol": {
+        "mail": "ruben@myagency.group",
+        "mail_binome": "edgar@myagency.group"
+    },
+    "Thalia Maatouk": {
+        "mail": "thalia@myagency.group",
+        "mail_binome": "corporate@myagency.group"
+    },
+    "Vialina Glimnurova": {
+        "mail": "vialina@myagency.group",
+        "mail_binome": "alexandra@myagency.group"
+    },
+    "Yves Sauveur Abitbol": {
+        "mail": "yves@myagency.group",
+        "mail_binome": 'eliottdouieb@gmail.com'
+    },
+    "Zoe Marie Mevil": {
+        "mail": "hanaa@myagency.group",
+        "mail_binome": "neuilly@myagency.group"
+    }
+}
 
 
 # ============================================================
@@ -67,7 +116,9 @@ mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
 @st.cache_data
 def load_data(revolut_file, bo_file):
     df_rev = pd.read_csv(revolut_file)
-    df_rev['email'] = df_rev['Payer'].map(mail_mapping)
+    df_rev['email'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail"))
+    df_rev['email_binome'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail_binome"))
+
 
     buffer = StringIO()
     Xlsx2csv(bo_file, outputencoding="utf-8").convert(buffer)
