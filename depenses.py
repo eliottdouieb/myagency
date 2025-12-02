@@ -703,4 +703,4 @@ def run_interface():
             st.warning("⚠️ Secrets GCP manquants.")
 
     # elif not uploaded_revolut:
-    # st.info("Veuillez commencer par charger le fichier Revolut ci-dessus.")
+    # st.info("Veuillez commencer par charger le fichier Revolut ci-dessus."))
