@@ -382,6 +382,23 @@ def run_interface():
     )
     maj_sets(matches_sans_libelle)
 
+    m_sans_conversion = (
+    df_rev_clean.merge(
+        df_bo_clean,
+        left_on=["Libelle_match"],
+        right_on=["Libelle"],
+        how="inner",
+        suffixes=("_rev", "_bo")
+    )
+    .drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
+    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
+    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
+    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
+    
+    maj_sets(matches_potentiel_sans_conversion)
+
     matches_sans_date = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
@@ -495,6 +512,17 @@ def run_interface():
             ]
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
+
+        with st.expander(
+            f"Matchs potentiel avec erreur de conversion sur revolut - meme Libellé et date +- 3 jours ({len(matches_potentiel_sans_conversion)})"
+        ):
+            cols_pots_sans_conversion = [
+                "idx_rev", "idx_bo",
+                "Date_rev", "Date_bo",
+                "Montant", "Description", "Libelle", "Payer", "email"
+            ]
+            df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[[c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]]
+            edited_sd = display_interactive_table(df_cols_pots_sans_conversion_view, "pot_sans_conversion")
 
         with st.expander(
             f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"
