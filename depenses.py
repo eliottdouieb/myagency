@@ -53,11 +53,11 @@ except Exception as e:
 # 1. Sidebar : Configuration Export
 # ============================================================
 
-with st.sidebar:
-    st.header("⚙️ Configuration Export")
-    st.subheader("Google Sheets")
-    sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
-    mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
+# with st.sidebar:
+#     st.header("⚙️ Configuration Export")
+#     st.subheader("Google Sheets")
+#     sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
+mail_mapping = {"Yves Sauveur Abitbol": "eliottdouieb@gmail.com"}
 
 
 # ============================================================
