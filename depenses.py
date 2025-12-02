@@ -198,7 +198,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
         "Card number", "Card label", "Payer", "Exchange rate",
-        "Orig currency", "Orig amount", "email"
+        "Orig currency", "Orig amount", "email","email_binome"
     ]
 
     df_rev_clean = df_rev_clean[cols_rev_keep]
@@ -660,7 +660,7 @@ def run_interface():
         **Important :**
 
         - En cliquant sur le bouton ci-dessous, vous activez l’automatisation qui enverra  
-          **tous les matins à 8h** un email aux concierges avec les **dépenses incomplètes ou inexistantes**
+          **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
           à ajouter dans le Back Office.
         - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
           👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
@@ -683,7 +683,7 @@ def run_interface():
                     cols_export = [
                         "Date", "Description", "Montant",
                         "ID", "Payer", "Exchange rate",
-                        "Orig currency", "Orig amount", "email"
+                        "Orig currency", "Orig amount", "email","email_binome"
                     ]
                     cols_final = [c for c in cols_export if c in df_export.columns]
                     df_export = df_export[cols_final]
