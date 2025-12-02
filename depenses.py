@@ -522,7 +522,7 @@ def run_interface():
                 "Montant", "Description", "Libelle", "Payer", "email"
             ]
             df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[[c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]]
-            edited_sd = display_interactive_table(df_cols_pots_sans_conversion_view, "pot_sans_conversion")
+            edited_pot_sans_conversion = display_interactive_table(df_cols_pots_sans_conversion_view, "pot_sans_conversion")
 
         with st.expander(
             f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"
@@ -550,7 +550,7 @@ def run_interface():
         st.markdown("---")
 
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
-            all_edited = [edited_ok, edited_sl, edited_sd, edited_sm, edited_pot]
+            all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
 
             rejected_rev_ids = []
             rejected_bo_ids = []
