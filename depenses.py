@@ -459,13 +459,15 @@ def run_interface():
     col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
     col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "✅ Matches & Validation",
-        "⚠️ KO Revolut (A traiter)",
+        "⚠️ KO Revolut (À traiter)",
         "⚠️ KO BackOffice",
-        "📤 Export GSheet"
+        "📤 Lancer les relances des dépenses incomplètes aux concierges",
+        "📦 Export vers Sage"
     ])
 
+ 
 
     # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
 
@@ -599,9 +601,23 @@ def run_interface():
         st.dataframe(st.session_state["ko_bo_final"])
 
     with tab4:
-        st.header("Export vers Google Sheets")
+        st.header("📤 Relances des dépenses incomplètes (Export vers Google Sheets)")
+
+            # Explication avant le bouton
+        st.markdown(
+        """
+        **Important :**
+
+        - En cliquant sur le bouton ci-dessous, vous activez l’automatisation qui enverra  
+          **tous les matins à 8h** un email aux concierges avec les **dépenses incomplètes ou inexistantes**
+          à ajouter dans le Back Office.
+        - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
+          👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
+        """
+    )
+
         if "gcp_service_account" in st.secrets:
-            if st.button("🚀 Lancer l'export GSheet"):
+            if st.button("🚀 Relances des dépenses incomplètes"):
                 try:
                     creds_dict = dict(st.secrets["gcp_service_account"])
                     gc = gspread.service_account_from_dict(creds_dict)
