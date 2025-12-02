@@ -164,7 +164,7 @@ def display_interactive_table(df, key_suffix):
         st.write("Aucune donnée.")
         return df
 
-    # 1. Ajout de la colonne de validation par défaut
+    # 1. Ajout de la colonne de validation par défautf
     df_edit = df.copy()
     df_edit.insert(0, "Valide", True)
 
