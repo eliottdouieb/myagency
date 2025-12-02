@@ -463,7 +463,7 @@ def run_interface():
         "✅ Matches & Validation",
         "⚠️ KO Revolut (À traiter)",
         "⚠️ KO BackOffice",
-        "📤 Lancer les relances des dépenses incomplètes aux concierges",
+        "📤 Relances des dépenses",
         "📦 Export vers Sage"
     ])
 
