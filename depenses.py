@@ -633,7 +633,7 @@ def run_interface():
             st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
             # st.rerun()
 
-    # --- TAB 2 & 3 : Affichage depuis le Session State ---
+    # --- TAB 2 & 3 : Affichage depuis le Session State ----
     with tab2:
         st.error("Ces transactions Revolut n'ont pas trouvé de correspondance (ou ont été rejetées).")
         df_ko_rev = st.session_state["ko_rev_final"]
