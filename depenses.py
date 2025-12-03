@@ -189,6 +189,9 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
     df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
 
+    cols_to_drop = ["Exchange rate", "Orig currency", "Orig amount", "Payer", "email", "email_binome", "Description"]
+    df_bo_clean = df_bo_clean.drop(columns=[c for c in cols_to_drop if c in df_bo_clean.columns], errors='ignore')
+
     # Revolut
     df_rev_clean = df_rev.copy()
     df_rev_clean = df_rev_clean[df_rev_clean["Type"] == "CARD_PAYMENT"]
@@ -564,7 +567,7 @@ def run_interface():
                 "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
             ]
             # st.write("Colonnes matches_potentiel_sans_conversion :", matches_potentiel_sans_conversion.columns.tolist())
-            st.write("Colonnes matches_sans_date :", matches_sans_date.columns.tolist())
+            # st.write("Colonnes matches_sans_date :", matches_sans_date.columns.tolist())
 
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
