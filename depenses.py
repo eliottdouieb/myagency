@@ -189,8 +189,8 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
     df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
 
-    cols_to_drop = ["Exchange rate", "Orig currency", "Orig amount", "Payer", "email", "email_binome", "Description"]
-    df_bo_clean = df_bo_clean.drop(columns=[c for c in cols_to_drop if c in df_bo_clean.columns], errors='ignore')
+    # cols_to_drop = ["Exchange rate", "Orig currency", "Orig amount", "Payer", "email", "email_binome", "Description"]
+    # df_bo_clean = df_bo_clean.drop(columns=[c for c in cols_to_drop if c in df_bo_clean.columns], errors='ignore')
 
     # Revolut
     df_rev_clean = df_rev.copy()
@@ -198,9 +198,11 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
     df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"] * (-1), errors="coerce")
 
+    st.write(df_rev_clean.columns)
+
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
-        "Card number", "Card label", "Payer", "Exchange rate",
+        "Card number", "Card label", "Payer", "Exchange rate_rev",
         "Orig currency", "Orig amount", "email","email_binome"
     ]
 
