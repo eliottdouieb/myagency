@@ -56,7 +56,7 @@ except Exception as e:
 # with st.sidebar:
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
-#     sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
+sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
 mail_mapping = {
     "Aurelie Goncalves": {
         "mail": "aurelie@myagency.group",
@@ -198,7 +198,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
     df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"] * (-1), errors="coerce")
 
-    st.write(df_rev_clean.columns)
+    
 
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
@@ -372,6 +372,7 @@ def run_interface():
             st.session_state["match_libelle"] = raw_map
 
             # On prépare les dataframes clean et on les met en state
+            st.write(df_rev_clean.columns)
             df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, raw_map)
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
