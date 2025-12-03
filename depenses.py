@@ -563,6 +563,9 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
             ]
+            # st.write("Colonnes matches_potentiel_sans_conversion :", matches_potentiel_sans_conversion.columns.tolist())
+            st.write("Colonnes matches_sans_date :", matches_sans_date.columns.tolist())
+
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
 
