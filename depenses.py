@@ -618,7 +618,7 @@ def run_interface():
             )
 
         with st.expander(
-            f"💶 Même libellé & même date, montant à valider ({len(matches_sans_montant)})"
+            f"💶 Même libellé & même dateeeee, montant à valider ({len(matches_sans_montant)})"
         ):
             st.markdown(
                 "Pour ces lignes, **le libellé et la date sont identiques** entre Revolut et le Back Office, "
