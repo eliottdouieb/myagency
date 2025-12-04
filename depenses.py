@@ -56,7 +56,7 @@ except Exception as e:
 # with st.sidebar:
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
-sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
+#     sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
 mail_mapping = {
     "Aurelie Goncalves": {
         "mail": "aurelie@myagency.group",
@@ -189,20 +189,15 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
     df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
 
-    # cols_to_drop = ["Exchange rate", "Orig currency", "Orig amount", "Payer", "email", "email_binome", "Description"]
-    # df_bo_clean = df_bo_clean.drop(columns=[c for c in cols_to_drop if c in df_bo_clean.columns], errors='ignore')
-
     # Revolut
     df_rev_clean = df_rev.copy()
     df_rev_clean = df_rev_clean[df_rev_clean["Type"] == "CARD_PAYMENT"]
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
     df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"] * (-1), errors="coerce")
 
-    
-
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
-        "Card number", "Card label", "Payer", "Exchange rate_rev",
+        "Card number", "Card label", "Payer", "Exchange rate",
         "Orig currency", "Orig amount", "email","email_binome"
     ]
 
@@ -324,12 +319,6 @@ def run_interface():
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
-    # ============================================================
-    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
-    # ============================================================
-    # ============================================================
-    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
-    # ============================================================
     if st.session_state["phase"] == "mapping":
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
@@ -350,11 +339,8 @@ def run_interface():
 
         st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
 
-        # On récupère le mapping actuel
-        current_map = st.session_state["match_libelle"]
-        
-        # Préparation du DataFrame pour l'éditeur
-        df_mapping = pd.DataFrame(list(current_map.items()), columns=["Libelle Revolut", "Libelle BO"])
+        raw_map = st.session_state["match_libelle"]
+        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
         df_mapping.insert(0, "Valide", True)
         df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
 
@@ -372,30 +358,23 @@ def run_interface():
 
         # Bouton de validation du mapping
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            
-            # 1. On prépare le dictionnaire final
-            final_map = current_map.copy()
-
-            # 2. On met à jour le dict en fonction des cases décochées
+            # On met à jour le dict en fonction des cases décochées
             for index, row in edited_mapping.iterrows():
                 if row["Valide"] is False:
-                    final_map[row["Libelle Revolut"]] = "match non trouvé"
+                    raw_map[row["Libelle Revolut"]] = "match non trouvé"
 
-            # 3. On sauvegarde le mapping corrigé
-            st.session_state["match_libelle"] = final_map
+            # On sauvegarde le mapping corrigé
+            st.session_state["match_libelle"] = raw_map
 
-            # 4. On lance le nettoyage avec des noms de variables TEMPORAIRES
-            # (On utilise 'temp_rev' et 'temp_bo' pour éviter l'erreur UnboundLocalError)
-            temp_rev, temp_bo = clean_dataframes(df_rev_raw, df_bo_raw, final_map)
-            
-            # 5. On stocke dans le session_state
-            st.session_state["df_rev_clean"] = temp_rev
-            st.session_state["df_bo_clean"] = temp_bo
+            # On prépare les dataframes clean et on les met en state
+            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, raw_map)
+            st.session_state["df_rev_clean"] = df_rev_clean
+            st.session_state["df_bo_clean"] = df_bo_clean
 
-            # 6. Changement de phase
+            # Changement de phase : on ne reviendra plus au mapping
             st.session_state["phase"] = "dashboard"
 
-            # 7. On relance
+            # On relance pour entrer dans la phase dashboard directement
             st.rerun()
 
         # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
@@ -584,9 +563,6 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
             ]
-            # st.write("Colonnes matches_potentiel_sans_conversion :", matches_potentiel_sans_conversion.columns.tolist())
-            # st.write("Colonnes matches_sans_date :", matches_sans_date.columns.tolist())
-
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
 
@@ -619,7 +595,7 @@ def run_interface():
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount" "email","email_binome"
             ]
             df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
             edited_pot = display_interactive_table(df_pot_view, "pot")
@@ -657,7 +633,7 @@ def run_interface():
             st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
             # st.rerun()
 
-    # --- TAB 2 & 3 : Affichage depuis le Session State ----
+    # --- TAB 2 & 3 : Affichage depuis le Session State ---
     with tab2:
         st.error("Ces transactions Revolut n'ont pas trouvé de correspondance (ou ont été rejetées).")
         df_ko_rev = st.session_state["ko_rev_final"]
