@@ -56,7 +56,7 @@ except Exception as e:
 # with st.sidebar:
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
-sheet_name = st.text_input("Nom du Google Sheet", "Suivi Dépenses Conciergerie")
+sheet_name = "Suivi Dépenses Conciergerie"
 mail_mapping = {
     "Aurelie Goncalves": {
         "mail": "aurelie@myagency.group",
@@ -358,23 +358,27 @@ def run_interface():
 
         # Bouton de validation du mapping
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            # On met à jour le dict en fonction des cases décochées
+            # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
+            current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
+
+            # 2. On crée une copie que l'on va mettre à jour
+            updated_map = current_map.copy()
+
+            # 3. Pour chaque ligne décochée, on force "match non trouvé"
             for index, row in edited_mapping.iterrows():
                 if row["Valide"] is False:
-                    raw_map[row["Libelle Revolut"]] = "match non trouvé"
+                    updated_map[row["Libelle Revolut"]] = "match non trouvé"
 
-            # On sauvegarde le mapping corrigé
-            st.session_state["match_libelle"] = raw_map
+            # 4. On sauvegarde le mapping corrigé en session
+            st.session_state["match_libelle"] = updated_map
 
-            # On prépare les dataframes clean et on les met en state
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, raw_map)
+            # 5. On prépare les dataframes clean et on les met en session
+            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, updated_map)
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
 
-            # Changement de phase : on ne reviendra plus au mapping
+            # 6. On passe en phase dashboard et on rerun
             st.session_state["phase"] = "dashboard"
-
-            # On relance pour entrer dans la phase dashboard directement
             st.rerun()
 
         # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
