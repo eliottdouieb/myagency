@@ -261,7 +261,7 @@ def display_interactive_table(df, key_suffix):
 
 def run_interface():
 
-    st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
+    # st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
 
 
     st.subheader("📥 Étape 1 : Import Revolut")
@@ -335,7 +335,7 @@ def run_interface():
 
             status.write(match_libelle)
             status.update(
-                label="IA terminéeeeeee - Mapping terminé !",
+                label="IA terminée - Mapping terminé !",
                 state="complete",
                 expanded=False
             )
