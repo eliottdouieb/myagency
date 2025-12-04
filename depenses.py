@@ -561,7 +561,7 @@ def run_interface():
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount" "email","email_binome"
             ]
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
@@ -572,7 +572,7 @@ def run_interface():
             cols_pots_sans_conversion = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer", "email","email_binome"
             ]
             df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[[c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]]
             edited_pot_sans_conversion = display_interactive_table(df_cols_pots_sans_conversion_view, "pot_sans_conversion")
@@ -583,7 +583,7 @@ def run_interface():
             cols_sm = [
                 "idx_rev", "idx_bo",
                 "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Description", "Libelle", "Payer", "email","email_binome"
             ]
             df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
             edited_sm = display_interactive_table(df_sm_view, "sm")
@@ -595,7 +595,7 @@ def run_interface():
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount" "email","email_binome"
+                "Description", "Libelle", "Payer", "email","email_binome"
             ]
             df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
             edited_pot = display_interactive_table(df_pot_view, "pot")
