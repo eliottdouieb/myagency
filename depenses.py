@@ -550,62 +550,113 @@ def run_interface():
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
 
         with st.expander(
-            f"Matchs Parfaits - meme montant , meme Libellé et meme date ({len(matches_ok)})",
+            f"✅ Matchs parfaits : même montant, même libellé et même date entre Revolut et le BO ({len(matches_ok)})",
             expanded=True
         ):
+            st.success(
+                "Ces lignes correspondent **exactement** entre Revolut et le Back Office : "
+                "**même montant, même libellé, même date**. "
+                "Sauf cas particulier, vous pouvez laisser ces rapprochements **validés**."
+            )
             df_ok_view = matches_ok[safe_cols(matches_ok)]
             edited_ok = display_interactive_table(df_ok_view, "ok")
 
+
         with st.expander(
-            f"Matchs Sans Libellé - meme montant et meme date ({len(matches_sans_libelle)})"
+            f"🔎 Même montant & même date, libellés à vérifier ({len(matches_sans_libelle)})"
         ):
+            st.warning(
+                "Pour ces lignes, **le montant et la date sont identiques** entre Revolut et le Back Office, "
+                "mais le libellé peut différer. "
+                "👉 Vérifiez que les libellés correspondent bien avant de laisser le rapprochement **validé**."
+            )
             df_sl_view = matches_sans_libelle[safe_cols(matches_sans_libelle)]
             edited_sl = display_interactive_table(df_sl_view, "sl")
 
+
         with st.expander(
-            f"Matchs Sans Date - meme montant et meme Libellé ({len(matches_sans_date)})"
+            f"📅 Même montant & même libellé, date à confirmer ({len(matches_sans_date)})"
         ):
+            st.markdown(
+                "Ici, **le montant et le libellé sont identiques** entre Revolut et le Back Office, "
+                "mais la date peut diverger. "
+                "👉 Vérifiez la cohérence de la date : si vous laissez le rapprochement **validé**, "
+                "**la date de l’écriture sera automatiquement modifiée dans le Back Office**."
+            )
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount","email","email_binome"
+                "Montant", "Description", "Libelle", "Payer",
+                "Exchange rate", "Orig currency", "Orig amount",
+                "email", "email_binome"
             ]
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
 
+
         with st.expander(
-            f"Matchs potentiel avec erreur de conversion sur revolut - meme Libellé et date +- 3 jours ({len(matches_potentiel_sans_conversion)})"
+            f"💱 Paiement en devise : même libellé & date proche, montant à contrôler ({len(matches_potentiel_sans_conversion)})"
         ):
+            st.warning(
+                "Ces lignes concernent des paiements faits **dans une devise étrangère** : "
+                "le **libellé est identique** et la **date est proche (± 3 jours)** entre Revolut et le Back Office. "
+                "👉 Vérifiez que le montant en euros dans le BO est cohérent avec la devise d’origine et le taux de change. "
+                "Si vous laissez le rapprochement **validé**, **la date sera automatiquement mise à jour dans le Back Office**."
+            )
             cols_pots_sans_conversion = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer",
+                "Exchange rate", "Orig currency", "Orig amount",
+                "email", "email_binome"
             ]
-            df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[[c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]]
-            edited_pot_sans_conversion = display_interactive_table(df_cols_pots_sans_conversion_view, "pot_sans_conversion")
+            df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[
+                [c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]
+            ]
+            edited_pot_sans_conversion = display_interactive_table(
+                df_cols_pots_sans_conversion_view, "pot_sans_conversion"
+            )
 
         with st.expander(
-            f"Matchs Sans Montant - meme Libellé et meme date ({len(matches_sans_montant)})"
+            f"💶 Même libellé & même date, montant à valider ({len(matches_sans_montant)})"
         ):
+            st.markdown(
+                "Pour ces lignes, **le libellé et la date sont identiques** entre Revolut et le Back Office, "
+                "mais le montant diffère ou doit être confirmé. "
+                "👉 Vérifiez le montant : si vous laissez le rapprochement **validé**, "
+                "**le montant sera automatiquement modifié dans le Back Office**."
+            )
             cols_sm = [
                 "idx_rev", "idx_bo",
                 "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Description", "Libelle", "Payer",
+                "Exchange rate", "Orig currency", "Orig amount",
+                "email", "email_binome"
             ]
             df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
             edited_sm = display_interactive_table(df_sm_view, "sm")
 
+
         with st.expander(
-            f"Matchs Potentiels - meme Libellé et date +- 3 jours ({len(matches_potentiel)})"
+            f"🧩 Matchs potentiels : même libellé & date proche, à valider ({len(matches_potentiel)})"
         ):
+            st.warning(
+                "Ces rapprochements sont **probables** : le libellé est identique et la date est **proche (± 3 jours)**, "
+                "mais la date et/ou le montant peuvent nécessiter une validation. "
+                "👉 Vérifiez **la date et le montant** : si vous laissez le rapprochement **validé**, "
+                "**la date et le montant seront automatiquement mis à jour dans le Back Office**."
+            )
             cols_pot = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer","Exchange rate", "Orig currency", "Orig amount", "email","email_binome"
+                "Description", "Libelle", "Payer",
+                "Exchange rate", "Orig currency", "Orig amount",
+                "email", "email_binome"
             ]
             df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
             edited_pot = display_interactive_table(df_pot_view, "pot")
+
 
         st.markdown("---")
 
