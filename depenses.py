@@ -324,6 +324,9 @@ def run_interface():
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
+    # ============================================================
+    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
+    # ============================================================
     if st.session_state["phase"] == "mapping":
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
@@ -344,9 +347,14 @@ def run_interface():
 
         st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
 
+        # On récupère le dictionnaire actuel
         raw_map = st.session_state["match_libelle"]
+        
+        # Préparation du DataFrame pour l'éditeur
         df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
         df_mapping.insert(0, "Valide", True)
+        
+        # On filtre pour ne pas afficher ceux déjà marqués comme "match non trouvé"
         df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
 
         edited_mapping = st.data_editor(
@@ -363,16 +371,21 @@ def run_interface():
 
         # Bouton de validation du mapping
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            # On met à jour le dict en fonction des cases décochées
+            # CORRECTION ICI : On travaille sur une copie explicite pour éviter l'erreur UnboundLocalError
+            final_map = st.session_state["match_libelle"].copy()
+
+            # On met à jour le dict en fonction des cases décochées dans l'éditeur
             for index, row in edited_mapping.iterrows():
                 if row["Valide"] is False:
-                    raw_map[row["Libelle Revolut"]] = "match non trouvé"
+                    final_map[row["Libelle Revolut"]] = "match non trouvé"
 
-            # On sauvegarde le mapping corrigé
-            st.session_state["match_libelle"] = raw_map
+            # On sauvegarde le mapping corrigé dans le state
+            st.session_state["match_libelle"] = final_map
 
-            # On prépare les dataframes clean et on les met en state
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, raw_map)
+            # On prépare les dataframes clean avec ce mapping final
+            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, final_map)
+            
+            # On stocke les résultats
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
 
