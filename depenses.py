@@ -327,6 +327,9 @@ def run_interface():
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
+    # ============================================================
+    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
+    # ============================================================
     if st.session_state["phase"] == "mapping":
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
@@ -347,14 +350,12 @@ def run_interface():
 
         st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
 
-        # On récupère le dictionnaire actuel
-        raw_map = st.session_state["match_libelle"]
+        # On récupère le mapping actuel
+        current_map = st.session_state["match_libelle"]
         
         # Préparation du DataFrame pour l'éditeur
-        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
+        df_mapping = pd.DataFrame(list(current_map.items()), columns=["Libelle Revolut", "Libelle BO"])
         df_mapping.insert(0, "Valide", True)
-        
-        # On filtre pour ne pas afficher ceux déjà marqués comme "match non trouvé"
         df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
 
         edited_mapping = st.data_editor(
@@ -371,28 +372,30 @@ def run_interface():
 
         # Bouton de validation du mapping
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            # CORRECTION ICI : On travaille sur une copie explicite pour éviter l'erreur UnboundLocalError
-            final_map = st.session_state["match_libelle"].copy()
+            
+            # 1. On prépare le dictionnaire final
+            final_map = current_map.copy()
 
-            # On met à jour le dict en fonction des cases décochées dans l'éditeur
+            # 2. On met à jour le dict en fonction des cases décochées
             for index, row in edited_mapping.iterrows():
                 if row["Valide"] is False:
                     final_map[row["Libelle Revolut"]] = "match non trouvé"
 
-            # On sauvegarde le mapping corrigé dans le state
+            # 3. On sauvegarde le mapping corrigé
             st.session_state["match_libelle"] = final_map
 
-            # On prépare les dataframes clean avec ce mapping final
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, final_map)
+            # 4. On lance le nettoyage avec des noms de variables TEMPORAIRES
+            # (On utilise 'temp_rev' et 'temp_bo' pour éviter l'erreur UnboundLocalError)
+            temp_rev, temp_bo = clean_dataframes(df_rev_raw, df_bo_raw, final_map)
             
-            # On stocke les résultats
-            st.session_state["df_rev_clean"] = df_rev_clean
-            st.session_state["df_bo_clean"] = df_bo_clean
+            # 5. On stocke dans le session_state
+            st.session_state["df_rev_clean"] = temp_rev
+            st.session_state["df_bo_clean"] = temp_bo
 
-            # Changement de phase : on ne reviendra plus au mapping
+            # 6. Changement de phase
             st.session_state["phase"] = "dashboard"
 
-            # On relance pour entrer dans la phase dashboard directement
+            # 7. On relance
             st.rerun()
 
         # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
