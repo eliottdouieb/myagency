@@ -261,6 +261,9 @@ def display_interactive_table(df, key_suffix):
 
 def run_interface():
 
+    st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
+
+
     st.subheader("📥 Étape 1 : Import Revolut")
     uploaded_revolut = st.file_uploader(
         "Sélectionnez le fichier CSV Revolut",
@@ -658,7 +661,7 @@ def run_interface():
     with tab4:
         st.header("📤 Relances des dépenses incomplètes (Export vers Google Sheets)")
 
-            # Explication avant le bouton
+        # Explication avant le bouton
         st.markdown(
         """
         **Important :**
