@@ -335,7 +335,7 @@ def run_interface():
 
             status.write(match_libelle)
             status.update(
-                label="IA terminée - Mapping terminé !",
+                label="IA terminéeeeeee - Mapping terminé !",
                 state="complete",
                 expanded=False
             )
