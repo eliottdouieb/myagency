@@ -39,7 +39,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💳 Rapprochement Bancaire Intelligent")
+st.title("💳 Rapprochement Bancaire Intelligenttt")
 st.markdown("---")
 
 # --- Récupération Sécurisée de la Clé API OpenAI ---
