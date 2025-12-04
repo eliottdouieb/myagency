@@ -39,7 +39,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("💳 Rapprochement Bancaire Intelligenttt")
+st.title("💳 Rapprochement Bancaire Intelligent")
 st.markdown("---")
 
 # --- Récupération Sécurisée de la Clé API OpenAI ---
@@ -372,7 +372,6 @@ def run_interface():
             st.session_state["match_libelle"] = raw_map
 
             # On prépare les dataframes clean et on les met en state
-            st.write(df_rev_clean.columns)
             df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, raw_map)
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
