@@ -99,7 +99,7 @@ mail_mapping = {
         "mail_binome": "alexandra@myagency.group"
     },
     "Yves Sauveur Abitbol": {
-        "mail": "yves@myagency.group",
+        "mail": "gloviaconsulting@gmail.com",
         "mail_binome": 'eliottdouieb@gmail.com'
     },
     "Zoe Marie Mevil": {
@@ -660,7 +660,7 @@ def run_interface():
 
         st.markdown("---")
 
-        st.markdown(
+        st.warning(
         """
         ⚠️ **Important**
 
