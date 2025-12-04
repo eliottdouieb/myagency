@@ -577,7 +577,7 @@ def run_interface():
         with st.expander(
             f"📅 Même montant & même libellé, date à confirmer ({len(matches_sans_date)})"
         ):
-            st.markdown(
+            st.warning(
                 "Ici, **le montant et le libellé sont identiques** entre Revolut et le Back Office, "
                 "mais la date peut diverger. "
                 "👉 Vérifiez la cohérence de la date : si vous laissez le rapprochement **validé**, "
@@ -618,9 +618,9 @@ def run_interface():
             )
 
         with st.expander(
-            f"💶 Même libellé & même dateeeee, montant à valider ({len(matches_sans_montant)})"
+            f"💶 Même libellé & même date, montant à valider ({len(matches_sans_montant)})"
         ):
-            st.markdown(
+            st.warning(
                 "Pour ces lignes, **le libellé et la date sont identiques** entre Revolut et le Back Office, "
                 "mais le montant diffère ou doit être confirmé. "
                 "👉 Vérifiez le montant : si vous laissez le rapprochement **validé**, "
@@ -660,6 +660,18 @@ def run_interface():
 
         st.markdown("---")
 
+        st.markdown(
+        """
+        ⚠️ **Important**
+
+        En décochant des lignes dans les tableaux ci-dessus puis en cliquant sur
+        **"Mettre à jour les KO avec les rejets"** :
+
+        - Les rapprochements décochés seront envoyés dans les onglets **"KO Revolut"** et **"KO BackOffice"**  
+        - Ces lignes seront ensuite utilisées comme **base de travail pour les corrections dans le Back Office (BO)**.
+        """
+    )
+
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
             all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
 
@@ -689,7 +701,7 @@ def run_interface():
             st.session_state["ko_bo_final"] = current_ko_bo
 
             st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
-            # st.rerun()
+            st.rerun()
 
     # --- TAB 2 & 3 : Affichage depuis le Session State ---
     with tab2:
