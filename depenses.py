@@ -7,6 +7,10 @@ from xlsx2csv import Xlsx2csv
 from openai import OpenAI
 import gspread
 import plotly.express as px
+import requests
+from datetime import datetime, date
+
+
 
 # ============================================================
 # 0. Configuration de la page & Style & Secrets
@@ -251,18 +255,109 @@ def display_interactive_table(df, key_suffix):
     return edited_df
 
 
-# ============================================================
-# 3. Logique Principale
-# ============================================================
+def run_api_crm(num_de_piece,value,date):
+    BASE_URL = st.secrets["crm"]["base_url"]
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
 
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD =st.secrets["crm"]["password"]
+    if not PASSWORD:
+        raise RuntimeError("Missing CRM_PASSWORD. …")
+        
+    auth_payload = {"email": EMAIL, "password": PASSWORD}
+    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
+    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+        
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+        
+
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": num_de_piece,
+            "type": "partner",
+            "field": "achat",
+            "value": value,
+            "date":date
+        }
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        json_body = resp.json() if "application/json" in ctype else {}
+
+        return {
+            "status": resp.status_code,
+            "type": "Réponse JSON",
+            "body": json_body,
+            "message": json_body.get("message", "Aucun message"),
+            "success": json_body.get("success", False),
+        }
+
+    except Exception as e:
+        return {
+            "status": resp.status_code if 'resp' in locals() else 500,
+            "type": "Réponse brute ou erreur",
+            "body": resp.text if 'resp' in locals() else str(e),
+            "message": "Erreur de traitement ou JSON invalide",
+            "success": False,
+        }
+
+def clean_dataframe_bo(df_bo):
+
+    # BO
+    df_bo_clean = df_bo.copy()
+    df_bo_clean["Date"] = pd.to_datetime(df_bo_clean["Date"], errors="coerce")
+    df_bo_clean["Montant"] = df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]
+    df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
+    df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
+
+    return df_bo_clean
+
+def check_compte_tiers_invalide(df):
+    comptes = df['Compte'].astype(str)
+    # Vérifie si au moins un ne commence PAS par "401"
+    return (~comptes.str.match(r"^401")).any()
+
+def _to_iso_date(v) -> str | None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (datetime, date, pd.Timestamp)):
+        return pd.to_datetime(v).strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+        except Exception:
+            return None
 # ============================================================
 # 3. Logique Principale
 # ============================================================
 
 def run_interface():
-
-    # st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
-
 
     st.subheader("📥 Étape 1 : Import Revolutt")
     uploaded_revolut = st.file_uploader(
@@ -318,459 +413,529 @@ def run_interface():
         st.session_state["df_rev_clean"] = None
     if "df_bo_clean" not in st.session_state:
         st.session_state["df_bo_clean"] = None
+    if "phase_0" not in st.session_state:
+        st.session_state["phase_0"] = "crm"
 
     # ============================================================
-    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
-    # ============================================================
-    if st.session_state["phase"] == "mapping":
-
-        with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
-            if st.session_state["match_libelle"] is None:
-                # Premier passage : on appelle l'IA
-                match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
-                st.session_state["match_libelle"] = match_libelle
-            else:
-                # Rerun : on réutilise le mapping déjà obtenu
-                match_libelle = st.session_state["match_libelle"]
-
-            status.write(match_libelle)
-            status.update(
-                label="IA terminée - Mapping terminé !",
-                state="complete",
-                expanded=False
-            )
-
-        st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
-
-        raw_map = st.session_state["match_libelle"]
-        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
-        df_mapping.insert(0, "Valide", True)
-        df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
-
-        edited_mapping = st.data_editor(
-            df_mapping,
-            column_config={
-                "Valide": st.column_config.CheckboxColumn("Accepter ?", default=True),
-                "Libelle Revolut": st.column_config.TextColumn("Libellé Revolut", disabled=True),
-                "Libelle BO": st.column_config.TextColumn("Libellé BO", disabled=True),
-            },
-            use_container_width=True,
-            hide_index=True,
-            key="mapping_editor"
-        )
-
-        # Bouton de validation du mapping
-        if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
-            current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
-
-            # 2. On crée une copie que l'on va mettre à jour
-            updated_map = current_map.copy()
-
-            # 3. Pour chaque ligne décochée, on force "match non trouvé"
-            for index, row in edited_mapping.iterrows():
-                if row["Valide"] is False:
-                    updated_map[row["Libelle Revolut"]] = "match non trouvé"
-
-            # 4. On sauvegarde le mapping corrigé en session
-            st.session_state["match_libelle"] = updated_map
-
-            # 5. On prépare les dataframes clean et on les met en session
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, updated_map)
-            st.session_state["df_rev_clean"] = df_rev_clean
-            st.session_state["df_bo_clean"] = df_bo_clean
-
-            # 6. On passe en phase dashboard et on rerun
-            st.session_state["phase"] = "dashboard"
-            st.rerun()
-
-        # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
-        return
-
-    # ============================================================
-    # PHASE 2 : DASHBOARD & MATCHING (phase == "dashboard")
+    # PHASE 0 : Rajout des comptes tiers dans CRM 
     # ============================================================
 
-    # On récupère les objets depuis le state
-    match_libelle = st.session_state["match_libelle"]
-    df_rev_clean = st.session_state["df_rev_clean"]
-    df_bo_clean = st.session_state["df_bo_clean"]
-
-    # Sécurité : si pour une raison X les df ne sont pas en state, on les recalcule
-    if df_rev_clean is None or df_bo_clean is None:
-        df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
-        st.session_state["df_rev_clean"] = df_rev_clean
-        st.session_state["df_bo_clean"] = df_bo_clean
-
-    # 3. Matching (Calcul initial)
-    used_rev = set()
-    used_bo = set()
-
-    def filtre_nouveaux(df):
-        return df[
-            ~df["idx_rev"].isin(used_rev)
-            & ~df["idx_bo"].isin(used_bo)
-        ]
-
-    def maj_sets(df):
-        used_rev.update(df["idx_rev"].dropna().unique())
-        used_bo.update(df["idx_bo"].dropna().unique())
-
-    # -- Algorithmes --
-    matches_ok = (
-        df_rev_clean.merge(
-            df_bo_clean,
-            left_on=["Date", "Montant", "Libelle_match"],
-            right_on=["Date", "Montant", "Libelle"],
-            how="inner",
-            suffixes=("_rev", "_bo")
-        )
-        .drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    maj_sets(matches_ok)
-
-    matches_sans_libelle = filtre_nouveaux(
-        df_rev_clean.merge(
-            df_bo_clean,
-            left_on=["Date", "Montant"],
-            right_on=["Date", "Montant"],
-            how="inner",
-            suffixes=("_rev", "_bo")
-        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    maj_sets(matches_sans_libelle)
-
-    m_sans_conversion = (
-    df_rev_clean.merge(
-        df_bo_clean,
-        left_on=["Libelle_match"],
-        right_on=["Libelle"],
-        how="inner",
-        suffixes=("_rev", "_bo")
-    )
-    .drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
-    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
-    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
-    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
-    
-    maj_sets(matches_potentiel_sans_conversion)
-
-    matches_sans_date = filtre_nouveaux(
-        df_rev_clean.merge(
-            df_bo_clean,
-            left_on=["Montant", "Libelle_match"],
-            right_on=["Montant", "Libelle"],
-            how="inner",
-            suffixes=("_rev", "_bo")
-        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    maj_sets(matches_sans_date)
-
-    matches_sans_montant = filtre_nouveaux(
-        df_rev_clean.merge(
-            df_bo_clean,
-            left_on=["Date", "Libelle_match"],
-            right_on=["Date", "Libelle"],
-            how="inner",
-            suffixes=("_rev", "_bo")
-        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    maj_sets(matches_sans_montant)
-
-    m_pot = (
-        df_rev_clean.merge(
-            df_bo_clean,
-            left_on=["Libelle_match"],
-            right_on=["Libelle"],
-            how="inner",
-            suffixes=("_rev", "_bo")
-        )
-        .drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
-    m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
-    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
-    maj_sets(matches_potentiel)
-
-    # KO initiaux
-    matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
-    matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
-
-    if "ko_rev_final" not in st.session_state:
-        st.session_state["ko_rev_final"] = matches_ko_rev_initial
-    if "ko_bo_final" not in st.session_state:
-        st.session_state["ko_bo_final"] = matches_ko_bo_initial
-
-    if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
-        st.session_state["ko_rev_final"] = matches_ko_rev_initial
-        st.session_state["ko_bo_final"] = matches_ko_bo_initial
-
-    # KPIs + tabs (tu peux garder ton code existant ici)
-    col1, col2, col3, col4 = st.columns(4)
-    total_rev = len(df_rev_clean)
-    total_matched = len(used_rev)
-    percent = round((total_matched / total_rev) * 100, 1) if total_rev > 0 else 0
-
-    col1.metric("Total Transactions", total_rev)
-    col2.metric("Matchées (Init)", total_matched, f"{percent}%")
-    col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
-    col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
-
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "✅ Matches & Validation",
-        "⚠️ KO Revolut (À traiter)",
-        "⚠️ KO BackOffice",
-        "📤 Relances des dépenses",
-        "📦 Export vers Sage"
-    ])
-
- 
-
-    # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
-
-    # --- TAB 1 : Tableaux Interactifs --- (tu peux garder strictement ton code actuel)
-    # (reprends ici ton bloc tab1 / tab2 / tab3 / tab4 inchangé)
-
-    # --- TAB 1 : Tableaux Interactifs ---
-    with tab1:
-        st.info(
-            "Décochez la case 'Valide ?' si un rapprochement est incorrect, "
-            "puis cliquez sur 'Mettre à jour' en bas de page."
-        )
-
-        # Colonnes de base
-        base_cols = [
-            "idx_rev", "idx_bo", "Date", "Montant",
-            "Description", "Libelle", "Payer",
-            "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte"
-        ]
-
-        safe_cols = lambda df: [c for c in base_cols if c in df.columns]
-
-        with st.expander(
-            f"✅ Matchs parfaits : même montant, même libellé et même date entre Revolut et le BO ({len(matches_ok)})",
-            expanded=True
-        ):
-            st.success(
-                "Ces lignes correspondent **exactement** entre Revolut et le Back Office : "
-                "**même montant, même libellé, même date**. "
-                "Sauf cas particulier, vous pouvez laisser ces rapprochements **validés**."
-            )
-            df_ok_view = matches_ok[safe_cols(matches_ok)]
-            edited_ok = display_interactive_table(df_ok_view, "ok")
-
-
-        with st.expander(
-            f"🔎 Même montant & même date, libellés à vérifier ({len(matches_sans_libelle)})"
-        ):
+    if st.session_state["phase_0"] == "crm":
+        bo=clean_dataframe_bo(df_bo_raw)
+        if check_compte_tiers_invalide(bo):
             st.warning(
-                "Pour ces lignes, **le montant et la date sont identiques** entre Revolut et le Back Office, "
-                "mais le libellé peut différer. "
-                "👉 Vérifiez que les libellés correspondent bien avant de laisser le rapprochement **validé**."
-            )
-            df_sl_view = matches_sans_libelle[safe_cols(matches_sans_libelle)]
-            edited_sl = display_interactive_table(df_sl_view, "sl")
-
-
-        with st.expander(
-            f"📅 Même montant & même libellé, date à confirmer ({len(matches_sans_date)})"
-        ):
-            st.warning(
-                "Ici, **le montant et le libellé sont identiques** entre Revolut et le Back Office, "
-                "mais la date peut diverger. "
-                "👉 Vérifiez la cohérence de la date : si vous laissez le rapprochement **validé**, "
-                "**la date de l’écriture sera automatiquement modifiée dans le Back Office**."
-            )
-            cols_sd = [
-                "idx_rev", "idx_bo",
-                "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle", "Payer",
-                "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
-            ]
-            df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
-            edited_sd = display_interactive_table(df_sd_view, "sd")
-
-
-        with st.expander(
-            f"💱 Paiement en devise : même libellé & date proche, montant à contrôler ({len(matches_potentiel_sans_conversion)})"
-        ):
-            st.warning(
-                "Ces lignes concernent des paiements faits **dans une devise étrangère** : "
-                "le **libellé est identique** et la **date est proche (± 3 jours)** entre Revolut et le Back Office. "
-                "👉 Vérifiez que le montant en euros dans le BO est cohérent avec la devise d’origine et le taux de change. "
-                "Si vous laissez le rapprochement **validé**, **la date sera automatiquement mise à jour dans le Back Office**."
-            )
-            cols_pots_sans_conversion = [
-                "idx_rev", "idx_bo",
-                "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer",
-                "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
-            ]
-            df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[
-                [c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]
-            ]
-            edited_pot_sans_conversion = display_interactive_table(
-                df_cols_pots_sans_conversion_view, "pot_sans_conversion"
+                "Des achats KO subsistent (Compte Tiers invalide). "
+                "Modifie le tableau puis clique sur « Valider les corrections »."
             )
 
-        with st.expander(
-            f"💶 Même libellé & même date, montant à valider ({len(matches_sans_montant)})"
-        ):
-            st.warning(
-                "Pour ces lignes, **le libellé et la date sont identiques** entre Revolut et le Back Office, "
-                "mais le montant diffère ou doit être confirmé. "
-                "👉 Vérifiez le montant : si vous laissez le rapprochement **validé**, "
-                "**le montant sera automatiquement modifié dans le Back Office**."
+            df_unique = bo.drop_duplicates(subset="Libelle").copy()
+
+            # editor_key = f"ko_editor_{st.session_state.ko_cycle}"
+            # validate_key = f"validate_{st.session_state.ko_cycle}"
+            # rerun_key = f"rerun_{st.session_state.ko_cycle}"
+
+            edited = st.data_editor(
+                df_unique[['idx_bo', 'Code journal', 'Fin mois', 'Crédit (€)', 'Débit(€)',
+       'Compte', 'Libelle', 'Date', 'Montant']],
+                # key=editor_key,
+                hide_index=True,
             )
-            cols_sm = [
-                "idx_rev", "idx_bo",
-                "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer",
-                "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
-            ]
-            df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
-            edited_sm = display_interactive_table(df_sm_view, "sm")
 
 
-        with st.expander(
-            f"🧩 Matchs potentiels : même libellé & date proche, à valider ({len(matches_potentiel)})"
-        ):
-            st.warning(
-                "Ces rapprochements sont **probables** : le libellé est identique et la date est **proche (± 3 jours)**, "
-                "mais la date et/ou le montant peuvent nécessiter une validation. "
-                "👉 Vérifiez **la date et le montant** : si vous laissez le rapprochement **validé**, "
-                "**la date et le montant seront automatiquement mis à jour dans le Back Office**."
-            )
-            cols_pot = [
-                "idx_rev", "idx_bo",
-                "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer",
-                "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
-            ]
-            df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
-            edited_pot = display_interactive_table(df_pot_view, "pot")
+            
+            if st.button("✅ Valider les corrections"):
+                api_logs = []
+                for _, r in edited.iterrows():
+                    if r['Compte'] != "???":
+                        idx = df_bo_raw[
+                            (df_bo_raw["Libelle"] == r["Libelle"]) 
+                        ].index
+                        if not idx.empty:
+                            df_bo_raw.loc[idx, ["Compte"]] = r[["Compte"]].values
+                        with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                            invoice_number = "06-999"
+                            compte_value = str(r["Compte"]).strip()
+                            date = _to_iso_date(str(r["Date"]).strip())
+                                
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                continue
+
+                            result = run_api_crm(invoice_number, compte_value, date)
+                            if result["status"] and 200 <= result["status"]  < 300:
+                                if result["success"]==False:
+                                    if result["message"]=="Line not updated, same value":
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
+                                    else :
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                                else:
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
+
+                with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
+
+                st.session_state["phase_0"] = "crm_valide"
+
+                st.success("✅ Modifications enregistrées. Passez au mapping IA")
+
+                if st.session_state["phase_0"] == "crm_valide":
+
+                    # ============================================================
+                    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
+                    # ============================================================
+                    if st.session_state["phase"] == "mapping":
+
+                        with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
+                            if st.session_state["match_libelle"] is None:
+                                # Premier passage : on appelle l'IA
+                                match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
+                                st.session_state["match_libelle"] = match_libelle
+                            else:
+                                # Rerun : on réutilise le mapping déjà obtenu
+                                match_libelle = st.session_state["match_libelle"]
+
+                            status.write(match_libelle)
+                            status.update(
+                                label="IA terminée - Mapping terminé !",
+                                state="complete",
+                                expanded=False
+                            )
+
+                        st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
+
+                        raw_map = st.session_state["match_libelle"]
+                        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
+                        df_mapping.insert(0, "Valide", True)
+                        df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
+
+                        edited_mapping = st.data_editor(
+                            df_mapping,
+                            column_config={
+                                "Valide": st.column_config.CheckboxColumn("Accepter ?", default=True),
+                                "Libelle Revolut": st.column_config.TextColumn("Libellé Revolut", disabled=True),
+                                "Libelle BO": st.column_config.TextColumn("Libellé BO", disabled=True),
+                            },
+                            use_container_width=True,
+                            hide_index=True,
+                            key="mapping_editor"
+                        )
+
+                        # Bouton de validation du mapping
+                        if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
+                            # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
+                            current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
+
+                            # 2. On crée une copie que l'on va mettre à jour
+                            updated_map = current_map.copy()
+
+                            # 3. Pour chaque ligne décochée, on force "match non trouvé"
+                            for index, row in edited_mapping.iterrows():
+                                if row["Valide"] is False:
+                                    updated_map[row["Libelle Revolut"]] = "match non trouvé"
+
+                            # 4. On sauvegarde le mapping corrigé en session
+                            st.session_state["match_libelle"] = updated_map
+
+                            # 5. On prépare les dataframes clean et on les met en session
+                            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, updated_map)
+                            st.session_state["df_rev_clean"] = df_rev_clean
+                            st.session_state["df_bo_clean"] = df_bo_clean
+
+                            # 6. On passe en phase dashboard et on rerun
+                            st.session_state["phase"] = "dashboard"
+                            st.rerun()
+
+                        # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
+                        return
+
+                    # ============================================================
+                    # PHASE 2 : DASHBOARD & MATCHING (phase == "dashboard")
+                    # ============================================================
+
+                    # On récupère les objets depuis le state
+                    match_libelle = st.session_state["match_libelle"]
+                    df_rev_clean = st.session_state["df_rev_clean"]
+                    df_bo_clean = st.session_state["df_bo_clean"]
+
+                    # Sécurité : si pour une raison X les df ne sont pas en state, on les recalcule
+                    if df_rev_clean is None or df_bo_clean is None:
+                        df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
+                        st.session_state["df_rev_clean"] = df_rev_clean
+                        st.session_state["df_bo_clean"] = df_bo_clean
+
+                    # 3. Matching (Calcul initial)
+                    used_rev = set()
+                    used_bo = set()
+
+                    def filtre_nouveaux(df):
+                        return df[
+                            ~df["idx_rev"].isin(used_rev)
+                            & ~df["idx_bo"].isin(used_bo)
+                        ]
+
+                    def maj_sets(df):
+                        used_rev.update(df["idx_rev"].dropna().unique())
+                        used_bo.update(df["idx_bo"].dropna().unique())
+
+                    # -- Algorithmes --
+                    matches_ok = (
+                        df_rev_clean.merge(
+                            df_bo_clean,
+                            left_on=["Date", "Montant", "Libelle_match"],
+                            right_on=["Date", "Montant", "Libelle"],
+                            how="inner",
+                            suffixes=("_rev", "_bo")
+                        )
+                        .drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    maj_sets(matches_ok)
+
+                    matches_sans_libelle = filtre_nouveaux(
+                        df_rev_clean.merge(
+                            df_bo_clean,
+                            left_on=["Date", "Montant"],
+                            right_on=["Date", "Montant"],
+                            how="inner",
+                            suffixes=("_rev", "_bo")
+                        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    maj_sets(matches_sans_libelle)
+
+                    m_sans_conversion = (
+                    df_rev_clean.merge(
+                        df_bo_clean,
+                        left_on=["Libelle_match"],
+                        right_on=["Libelle"],
+                        how="inner",
+                        suffixes=("_rev", "_bo")
+                    )
+                    .drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
+                    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
+                    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
+                    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
+                    
+                    maj_sets(matches_potentiel_sans_conversion)
+
+                    matches_sans_date = filtre_nouveaux(
+                        df_rev_clean.merge(
+                            df_bo_clean,
+                            left_on=["Montant", "Libelle_match"],
+                            right_on=["Montant", "Libelle"],
+                            how="inner",
+                            suffixes=("_rev", "_bo")
+                        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    maj_sets(matches_sans_date)
+
+                    matches_sans_montant = filtre_nouveaux(
+                        df_rev_clean.merge(
+                            df_bo_clean,
+                            left_on=["Date", "Libelle_match"],
+                            right_on=["Date", "Libelle"],
+                            how="inner",
+                            suffixes=("_rev", "_bo")
+                        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    maj_sets(matches_sans_montant)
+
+                    m_pot = (
+                        df_rev_clean.merge(
+                            df_bo_clean,
+                            left_on=["Libelle_match"],
+                            right_on=["Libelle"],
+                            how="inner",
+                            suffixes=("_rev", "_bo")
+                        )
+                        .drop_duplicates(subset=["idx_rev", "idx_bo"])
+                    )
+                    m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
+                    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
+                    maj_sets(matches_potentiel)
+
+                    # KO initiaux
+                    matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
+                    matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
+
+                    if "ko_rev_final" not in st.session_state:
+                        st.session_state["ko_rev_final"] = matches_ko_rev_initial
+                    if "ko_bo_final" not in st.session_state:
+                        st.session_state["ko_bo_final"] = matches_ko_bo_initial
+
+                    if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
+                        st.session_state["ko_rev_final"] = matches_ko_rev_initial
+                        st.session_state["ko_bo_final"] = matches_ko_bo_initial
+
+                    # KPIs + tabs (tu peux garder ton code existant ici)
+                    col1, col2, col3, col4 = st.columns(4)
+                    total_rev = len(df_rev_clean)
+                    total_matched = len(used_rev)
+                    percent = round((total_matched / total_rev) * 100, 1) if total_rev > 0 else 0
+
+                    col1.metric("Total Transactions", total_rev)
+                    col2.metric("Matchées (Init)", total_matched, f"{percent}%")
+                    col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
+                    col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
+
+                    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                        "✅ Matches & Validation",
+                        "⚠️ KO Revolut (À traiter)",
+                        "⚠️ KO BackOffice",
+                        "📤 Relances des dépenses",
+                        "📦 Export vers Sage"
+                    ])
+
+                
+
+                    # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
+
+                    # --- TAB 1 : Tableaux Interactifs --- (tu peux garder strictement ton code actuel)
+                    # (reprends ici ton bloc tab1 / tab2 / tab3 / tab4 inchangé)
+
+                    # --- TAB 1 : Tableaux Interactifs ---
+                    with tab1:
+                        st.info(
+                            "Décochez la case 'Valide ?' si un rapprochement est incorrect, "
+                            "puis cliquez sur 'Mettre à jour' en bas de page."
+                        )
+
+                        # Colonnes de base
+                        base_cols = [
+                            "idx_rev", "idx_bo", "Date", "Montant",
+                            "Description", "Libelle", "Payer",
+                            "Exchange rate", "Orig currency", "Orig amount",
+                            "email","email_binome","Compte"
+                        ]
+
+                        safe_cols = lambda df: [c for c in base_cols if c in df.columns]
+
+                        with st.expander(
+                            f"✅ Matchs parfaits : même montant, même libellé et même date entre Revolut et le BO ({len(matches_ok)})",
+                            expanded=True
+                        ):
+                            st.success(
+                                "Ces lignes correspondent **exactement** entre Revolut et le Back Office : "
+                                "**même montant, même libellé, même date**. "
+                                "Sauf cas particulier, vous pouvez laisser ces rapprochements **validés**."
+                            )
+                            df_ok_view = matches_ok[safe_cols(matches_ok)]
+                            edited_ok = display_interactive_table(df_ok_view, "ok")
 
 
-        st.markdown("---")
+                        with st.expander(
+                            f"🔎 Même montant & même date, libellés à vérifier ({len(matches_sans_libelle)})"
+                        ):
+                            st.warning(
+                                "Pour ces lignes, **le montant et la date sont identiques** entre Revolut et le Back Office, "
+                                "mais le libellé peut différer. "
+                                "👉 Vérifiez que les libellés correspondent bien avant de laisser le rapprochement **validé**."
+                            )
+                            df_sl_view = matches_sans_libelle[safe_cols(matches_sans_libelle)]
+                            edited_sl = display_interactive_table(df_sl_view, "sl")
 
-        st.warning(
-        """
-        ⚠️ **Important**
 
-        En décochant des lignes dans les tableaux ci-dessus puis en cliquant sur
-        **"Mettre à jour les KO avec les rejets"** :
+                        with st.expander(
+                            f"📅 Même montant & même libellé, date à confirmer ({len(matches_sans_date)})"
+                        ):
+                            st.warning(
+                                "Ici, **le montant et le libellé sont identiques** entre Revolut et le Back Office, "
+                                "mais la date peut diverger. "
+                                "👉 Vérifiez la cohérence de la date : si vous laissez le rapprochement **validé**, "
+                                "**la date de l’écriture sera automatiquement modifiée dans le Back Office**."
+                            )
+                            cols_sd = [
+                                "idx_rev", "idx_bo",
+                                "Date_rev", "Date_bo",
+                                "Montant", "Description", "Libelle", "Payer",
+                                "Exchange rate", "Orig currency", "Orig amount",
+                                "email", "email_binome"
+                            ]
+                            df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
+                            edited_sd = display_interactive_table(df_sd_view, "sd")
 
-        - Les rapprochements décochés seront envoyés dans les onglets **"KO Revolut"** et **"KO BackOffice"**  
-        - Ces lignes seront ensuite utilisées comme **base de travail pour les corrections dans le Back Office (BO)**.
-        """
-    )
 
-        if st.button("🔄 Mettre à jour les KO avec les rejets"):
-            all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
+                        with st.expander(
+                            f"💱 Paiement en devise : même libellé & date proche, montant à contrôler ({len(matches_potentiel_sans_conversion)})"
+                        ):
+                            st.warning(
+                                "Ces lignes concernent des paiements faits **dans une devise étrangère** : "
+                                "le **libellé est identique** et la **date est proche (± 3 jours)** entre Revolut et le Back Office. "
+                                "👉 Vérifiez que le montant en euros dans le BO est cohérent avec la devise d’origine et le taux de change. "
+                                "Si vous laissez le rapprochement **validé**, **la date sera automatiquement mise à jour dans le Back Office**."
+                            )
+                            cols_pots_sans_conversion = [
+                                "idx_rev", "idx_bo",
+                                "Date_rev", "Date_bo",
+                                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer",
+                                "Exchange rate", "Orig currency", "Orig amount",
+                                "email", "email_binome"
+                            ]
+                            df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[
+                                [c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]
+                            ]
+                            edited_pot_sans_conversion = display_interactive_table(
+                                df_cols_pots_sans_conversion_view, "pot_sans_conversion"
+                            )
 
-            rejected_rev_ids = []
-            rejected_bo_ids = []
+                        with st.expander(
+                            f"💶 Même libellé & même date, montant à valider ({len(matches_sans_montant)})"
+                        ):
+                            st.warning(
+                                "Pour ces lignes, **le libellé et la date sont identiques** entre Revolut et le Back Office, "
+                                "mais le montant diffère ou doit être confirmé. "
+                                "👉 Vérifiez le montant : si vous laissez le rapprochement **validé**, "
+                                "**le montant sera automatiquement modifié dans le Back Office**."
+                            )
+                            cols_sm = [
+                                "idx_rev", "idx_bo",
+                                "Date", "Montant_rev", "Montant_bo",
+                                "Description", "Libelle", "Payer",
+                                "Exchange rate", "Orig currency", "Orig amount",
+                                "email", "email_binome"
+                            ]
+                            df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
+                            edited_sm = display_interactive_table(df_sm_view, "sm")
 
-            for df in all_edited:
-                if not df.empty and "Valide" in df.columns:
-                    rejected = df[df["Valide"] == False]
-                    if not rejected.empty:
-                        if "idx_rev" in rejected.columns:
-                            rejected_rev_ids.extend(rejected["idx_rev"].tolist())
-                        if "idx_bo" in rejected.columns:
-                            rejected_bo_ids.extend(rejected["idx_bo"].tolist())
 
-            rows_to_add_rev = df_rev_clean[df_rev_clean["idx_rev"].isin(rejected_rev_ids)]
-            rows_to_add_bo = df_bo_clean[df_bo_clean["idx_bo"].isin(rejected_bo_ids)]
+                        with st.expander(
+                            f"🧩 Matchs potentiels : même libellé & date proche, à valider ({len(matches_potentiel)})"
+                        ):
+                            st.warning(
+                                "Ces rapprochements sont **probables** : le libellé est identique et la date est **proche (± 3 jours)**, "
+                                "mais la date et/ou le montant peuvent nécessiter une validation. "
+                                "👉 Vérifiez **la date et le montant** : si vous laissez le rapprochement **validé**, "
+                                "**la date et le montant seront automatiquement mis à jour dans le Back Office**."
+                            )
+                            cols_pot = [
+                                "idx_rev", "idx_bo",
+                                "Date_rev", "Date_bo",
+                                "Montant_rev", "Montant_bo",
+                                "Description", "Libelle", "Payer",
+                                "Exchange rate", "Orig currency", "Orig amount",
+                                "email", "email_binome"
+                            ]
+                            df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
+                            edited_pot = display_interactive_table(df_pot_view, "pot")
 
-            current_ko_rev = pd.concat(
-                [matches_ko_rev_initial, rows_to_add_rev]
-            ).drop_duplicates(subset="idx_rev")
-            current_ko_bo = pd.concat(
-                [matches_ko_bo_initial, rows_to_add_bo]
-            ).drop_duplicates(subset="idx_bo")
 
-            st.session_state["ko_rev_final"] = current_ko_rev
-            st.session_state["ko_bo_final"] = current_ko_bo
+                        st.markdown("---")
 
-            st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
-            st.rerun()
+                        st.warning(
+                        """
+                        ⚠️ **Important**
 
-    # --- TAB 2 & 3 : Affichage depuis le Session State ---
-    with tab2:
-        st.error("Ces transactions Revolut n'ont pas trouvé de correspondance (ou ont été rejetées).")
-        df_ko_rev = st.session_state["ko_rev_final"]
-        st.dataframe(df_ko_rev)
+                        En décochant des lignes dans les tableaux ci-dessus puis en cliquant sur
+                        **"Mettre à jour les KO avec les rejets"** :
 
-        csv_ko = df_ko_rev.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Télécharger CSV KO Revolut",
-            data=csv_ko,
-            file_name="revolut_ko.csv",
-            mime="text/csv"
-        )
+                        - Les rapprochements décochés seront envoyés dans les onglets **"KO Revolut"** et **"KO BackOffice"**  
+                        - Ces lignes seront ensuite utilisées comme **base de travail pour les corrections dans le Back Office (BO)**.
+                        """
+                    )
 
-    with tab3:
-        st.warning("Ces écritures BackOffice sont orphelines (ou rejetées).")
-        st.dataframe(st.session_state["ko_bo_final"])
+                        if st.button("🔄 Mettre à jour les KO avec les rejets"):
+                            all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
 
-    with tab4:
-        st.header("📤 Relances des dépenses incomplètes (Export vers Google Sheets)")
+                            rejected_rev_ids = []
+                            rejected_bo_ids = []
 
-        # Explication avant le boutonnnnn
-        st.markdown(
-        """
-        **Important :**
+                            for df in all_edited:
+                                if not df.empty and "Valide" in df.columns:
+                                    rejected = df[df["Valide"] == False]
+                                    if not rejected.empty:
+                                        if "idx_rev" in rejected.columns:
+                                            rejected_rev_ids.extend(rejected["idx_rev"].tolist())
+                                        if "idx_bo" in rejected.columns:
+                                            rejected_bo_ids.extend(rejected["idx_bo"].tolist())
 
-        - En cliquant sur le bouton ci-dessous, vous activez l’automatisation qui enverra  
-          **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
-          à ajouter dans le Back Office.
-        - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
-          👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
-        """
-    )
+                            rows_to_add_rev = df_rev_clean[df_rev_clean["idx_rev"].isin(rejected_rev_ids)]
+                            rows_to_add_bo = df_bo_clean[df_bo_clean["idx_bo"].isin(rejected_bo_ids)]
 
-        if "gcp_service_account" in st.secrets:
-            if st.button("🚀 Relances des dépenses incomplètes"):
-                try:
-                    creds_dict = dict(st.secrets["gcp_service_account"])
-                    gc = gspread.service_account_from_dict(creds_dict)
-                    sh = gc.open(sheet_name)
+                            current_ko_rev = pd.concat(
+                                [matches_ko_rev_initial, rows_to_add_rev]
+                            ).drop_duplicates(subset="idx_rev")
+                            current_ko_bo = pd.concat(
+                                [matches_ko_bo_initial, rows_to_add_bo]
+                            ).drop_duplicates(subset="idx_bo")
 
-                    try:
-                        ws = sh.worksheet("A traiter")
-                    except:
-                        ws = sh.get_worksheet(0)
+                            st.session_state["ko_rev_final"] = current_ko_rev
+                            st.session_state["ko_bo_final"] = current_ko_bo
 
-                    df_export = st.session_state["ko_rev_final"].copy()
-                    cols_export = [
-                        "Date", "Description", "Montant",
-                        "ID", "Payer", "Exchange rate",
-                        "Orig currency", "Orig amount", "email","email_binome"
-                    ]
-                    cols_final = [c for c in cols_export if c in df_export.columns]
-                    df_export = df_export[cols_final]
+                            st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
+                            st.rerun()
 
-                    if "Date" in df_export.columns:
-                        df_export["Date"] = df_export["Date"].dt.strftime("%Y-%m-%d")
+                    # --- TAB 2 & 3 : Affichage depuis le Session State ---
+                    with tab2:
+                        st.error("Ces transactions Revolut n'ont pas trouvé de correspondance (ou ont été rejetées).")
+                        df_ko_rev = st.session_state["ko_rev_final"]
+                        st.dataframe(df_ko_rev)
 
-                    df_export = df_export.fillna("")
+                        csv_ko = df_ko_rev.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            "Télécharger CSV KO Revolut",
+                            data=csv_ko,
+                            file_name="revolut_ko.csv",
+                            mime="text/csv"
+                        )
 
-                    # ws.append_rows(df_export.values.tolist())ggg
-                    ws.insert_rows(df_export.values.tolist(), row=2)
-                    st.success(f"✅ {len(df_export)} lignes exportées avec succès !")
+                    with tab3:
+                        st.warning("Ces écritures BackOffice sont orphelines (ou rejetées).")
+                        st.dataframe(st.session_state["ko_bo_final"])
 
-                except Exception as e:
-                    st.error(f"Erreur export : {e}")
-        else:
-            st.warning("⚠️ Secrets GCP manquants.")
+                    with tab4:
+                        st.header("📤 Relances des dépenses incomplètes (Export vers Google Sheets)")
 
-    # elif not uploaded_revolut:
-    # st.info("Veuillez commencer par charger le fichier Revolut ci-dessus."))
+                        # Explication avant le boutonnnnn
+                        st.markdown(
+                        """
+                        **Important :**
+
+                        - En cliquant sur le bouton ci-dessous, vous activez l’automatisation qui enverra  
+                        **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
+                        à ajouter dans le Back Office.
+                        - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
+                        👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
+                        """
+                    )
+
+                        if "gcp_service_account" in st.secrets:
+                            if st.button("🚀 Relances des dépenses incomplètes"):
+                                try:
+                                    creds_dict = dict(st.secrets["gcp_service_account"])
+                                    gc = gspread.service_account_from_dict(creds_dict)
+                                    sh = gc.open(sheet_name)
+
+                                    try:
+                                        ws = sh.worksheet("A traiter")
+                                    except:
+                                        ws = sh.get_worksheet(0)
+
+                                    df_export = st.session_state["ko_rev_final"].copy()
+                                    cols_export = [
+                                        "Date", "Description", "Montant",
+                                        "ID", "Payer", "Exchange rate",
+                                        "Orig currency", "Orig amount", "email","email_binome"
+                                    ]
+                                    cols_final = [c for c in cols_export if c in df_export.columns]
+                                    df_export = df_export[cols_final]
+
+                                    if "Date" in df_export.columns:
+                                        df_export["Date"] = df_export["Date"].dt.strftime("%Y-%m-%d")
+
+                                    df_export = df_export.fillna("")
+
+                                    # ws.append_rows(df_export.values.tolist())ggg
+                                    ws.insert_rows(df_export.values.tolist(), row=2)
+                                    st.success(f"✅ {len(df_export)} lignes exportées avec succès !")
+
+                                except Exception as e:
+                                    st.error(f"Erreur export : {e}")
+                        else:
+                            st.warning("⚠️ Secrets GCP manquants.")
+
+                    # elif not uploaded_revolut:
+                    # st.info("Veuillez commencer par charger le fichier Revolut ci-dessus."))
