@@ -7,6 +7,9 @@ from xlsx2csv import Xlsx2csv
 from openai import OpenAI
 import gspread
 import plotly.express as px
+import requests
+from datetime import datetime, date
+
 
 # ============================================================
 # 0. Configuration de la page & Style & Secrets
@@ -250,14 +253,109 @@ def display_interactive_table(df, key_suffix):
 
     return edited_df
 
+def check_compte_tiers_invalide(df):
+    comptes = df['Compte'].astype(str)
+    # Vérifie si au moins un ne commence PAS par "401"
+    return (~comptes.str.match(r"^401")).any()
+
+
+def _to_iso_date(v) -> str | None:
+
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (datetime, date, pd.Timestamp)):
+        return pd.to_datetime(v).strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+        except Exception:
+            return None
+        
+def run_api_crm(num_de_piece,value,date):
+
+    BASE_URL = st.secrets["crm"]["base_url"]
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD =st.secrets["crm"]["password"]
+    if not PASSWORD:
+        raise RuntimeError("Missing CRM_PASSWORD. …")
+        
+    auth_payload = {"email": EMAIL, "password": PASSWORD}
+    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
+    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+        
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+        
+
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": num_de_piece,
+            "type": "partner",
+            "field": "achat",
+            "value": value,
+            "date":date
+        }
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        json_body = resp.json() if "application/json" in ctype else {}
+
+        return {
+            "status": resp.status_code,
+            "type": "Réponse JSON",
+            "body": json_body,
+            "message": json_body.get("message", "Aucun message"),
+            "success": json_body.get("success", False),
+        }
+
+    except Exception as e:
+        return {
+            "status": resp.status_code if 'resp' in locals() else 500,
+            "type": "Réponse brute ou erreur",
+            "body": resp.text if 'resp' in locals() else str(e),
+            "message": "Erreur de traitement ou JSON invalide",
+            "success": False,
+        }
+
+def clean_bo_only(df_bo: pd.DataFrame) -> pd.DataFrame:
+    df_bo_clean = df_bo.copy()
+    df_bo_clean["Date"] = pd.to_datetime(df_bo_clean["Date"], errors="coerce")
+    df_bo_clean["Montant"] = df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]
+    df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
+    df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
+    return df_bo_clean
 
 # ============================================================
 # 3. Logique Principale
 # ============================================================
 
-# ============================================================
-# 3. Logique Principale
-# ============================================================
 
 def run_interface():
 
@@ -319,10 +417,139 @@ def run_interface():
     if "df_bo_clean" not in st.session_state:
         st.session_state["df_bo_clean"] = None
 
+    if "ko_cycle" not in st.session_state:
+        st.session_state["ko_cycle"] = 0
+    if "compte_tiers_done" not in st.session_state:
+        st.session_state["compte_tiers_done"] = False
+
+    # IMPORTANT: on persiste les raw pour réinjecter les corrections
+    if "df_bo_raw" not in st.session_state or st.session_state["df_bo_raw"] is None:
+        st.session_state["df_bo_raw"] = df_bo_raw
+    if "df_rev_raw" not in st.session_state or st.session_state["df_rev_raw"] is None:
+        st.session_state["df_rev_raw"] = df_rev_raw
+
+
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
     if st.session_state["phase"] == "mapping":
+
+    # ============================================================
+    # Gestion des comptes tiers (AVANT mapping IA)
+    # ============================================================
+
+        # On reprend les raw depuis la session (car on va les modifier)
+        df_bo_raw = st.session_state["df_bo_raw"]
+        df_rev_raw = st.session_state["df_rev_raw"]
+
+        # On crée un BO clean "préliminaire" (indépendant du mapping IA)
+        df_bo_clean_pre = clean_bo_only(df_bo_raw)
+
+        # Détection: soit "Compte == ???", soit compte qui ne commence pas par 401
+        has_invalid = False
+        if "Compte" in df_bo_clean_pre.columns:
+            has_invalid = (
+                (df_bo_clean_pre["Compte"].astype(str).str.strip() == "???").any()
+                or check_compte_tiers_invalide(df_bo_clean_pre)
+            )
+
+        if has_invalid and not st.session_state["compte_tiers_done"]:
+            st.warning("⚠️ Des comptes tiers BO sont invalides (ex: '???' ou non-401). Corrigez avant de lancer l'IA.")
+
+            df_ko_compte_tiers = df_bo_clean_pre[df_bo_clean_pre["Compte"].astype(str).str.strip() == "???"].copy()
+
+            if df_ko_compte_tiers.empty:
+                st.info("Il y a des comptes non-401, mais aucun '???'. (Tu peux adapter ici si tu veux les éditer aussi.)")
+            else:
+                df_unique = df_ko_compte_tiers.drop_duplicates(subset="Libelle").copy()
+
+                editor_key = f"ko_editor_{st.session_state['ko_cycle']}"
+                validate_key = f"validate_{st.session_state['ko_cycle']}"
+
+                edited = st.data_editor(
+                    df_unique[["idx_bo", "Code journal", "Fin mois", "Crédit (€)", "Débit(€)", "Compte", "Libelle", "Date", "Montant"]],
+                    key=editor_key,
+                    hide_index=True,
+                )
+
+                if st.button("✅ Valider les corrections", key=validate_key):
+                    # 1) Réinjecter les comptes corrigés dans df_bo_raw (source)
+                    # On met à jour toutes les lignes du BO raw ayant le même Libelle
+                    for _, r in edited.iterrows():
+                        new_compte = str(r.get("Compte", "")).strip()
+                        lib = r.get("Libelle", None)
+
+                        if lib is None:
+                            continue
+                        if new_compte and new_compte != "???":
+                            mask = (df_bo_raw["Libelle"] == lib)
+                            df_bo_raw.loc[mask, "Compte"] = new_compte
+
+                    # 2) Optionnel: push CRM (uniquement si tu as une colonne "N° pièce"/invoice)
+                    api_logs = []
+
+                    # Essaie de deviner la colonne invoice number
+                    invoice_cols = ["N° pièce", "NoPiece", "InvoiceNumber", "Numéro de pièce", "Piece"]
+                    invoice_col = next((c for c in invoice_cols if c in df_bo_raw.columns), None)
+
+                    if invoice_col is None:
+                        api_logs.append("⚠️ Colonne numéro de pièce introuvable dans le BO → mise à jour CRM ignorée.")
+                    else:
+                        with st.spinner("Mise à jour CRM (seulement les lignes modifiées)…"):
+                            # On boucle sur les lignes éditées et on update CRM
+                            for _, r in edited.iterrows():
+                                new_compte = str(r.get("Compte", "")).strip()
+                                lib = r.get("Libelle", None)
+                                if not lib or not new_compte or new_compte == "???":
+                                    continue
+
+                                # on prend la 1ère facture correspondante dans le raw (même libellé)
+                                rows = df_bo_raw[df_bo_raw["Libelle"] == lib]
+                                if rows.empty:
+                                    continue
+
+                                invoice_number = str(rows.iloc[0][invoice_col]).strip()
+                                date_iso = _to_iso_date(rows.iloc[0].get("Date", None))
+
+                                if not invoice_number:
+                                    api_logs.append(f"⚠️ Libellé '{lib}': pas de numéro de pièce → skip CRM")
+                                    continue
+
+                                result = run_api_crm(invoice_number, new_compte, date_iso)
+
+                                if result["status"] and 200 <= result["status"] < 300:
+                                    if result["success"] is False:
+                                        if result["message"] == "Line not updated, same value":
+                                            api_logs.append(
+                                                f"⚠️ CRM: {invoice_number} → {new_compte} | valeur identique, pas de MAJ"
+                                            )
+                                        else:
+                                            api_logs.append(
+                                                f"❌ CRM: {invoice_number} → {new_compte} | {result['message']}"
+                                            )
+                                    else:
+                                        api_logs.append(
+                                            f"✅ CRM: {invoice_number} → {new_compte} | {result['message']}"
+                                        )
+                                else:
+                                    api_logs.append(
+                                        f"❌ CRM: {invoice_number} → {new_compte} (HTTP {result['status']}) | {result['body']}"
+                                    )
+
+                    with st.expander("Détails des mises à jour CRM"):
+                        for line in api_logs:
+                            st.write(line)
+
+                    # 3) Sauvegarde + verrouillage + rerun
+                    st.session_state["df_bo_raw"] = df_bo_raw
+                    st.session_state["compte_tiers_done"] = True
+                    st.session_state["ko_cycle"] += 1
+                    st.success("✅ Comptes tiers corrigés. Relance du process…")
+                    st.rerun()
+
+            # Tant que ce n’est pas corrigé, on bloque la suite (donc pas d’IA)
+            return
+
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
             if st.session_state["match_libelle"] is None:
