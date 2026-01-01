@@ -7,6 +7,10 @@ from xlsx2csv import Xlsx2csv
 from openai import OpenAI
 import gspread
 import plotly.express as px
+import requests
+from datetime import datetime, date
+
+
 
 # ============================================================
 # 0. Configuration de la page & Style & Secrets
@@ -108,6 +112,41 @@ mail_mapping = {
     }
 }
 
+
+
+def init_state():
+    defaults = {
+        "files_sig": None,
+
+        "phase_0": "crm",         # "crm" ou "crm_valide"
+        "phase": "mapping",       # "mapping" ou "dashboard"
+
+        "match_libelle": None,    # dict
+        "df_rev_clean": None,     # df
+        "df_bo_clean": None,      # df
+
+        "ko_rev_final": None,     # df
+        "ko_bo_final": None,      # df
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+def reset_state_for_new_files(new_sig: str):
+    st.session_state["files_sig"] = new_sig
+
+    st.session_state["phase_0"] = "crm"
+    st.session_state["phase"] = "mapping"
+
+    st.session_state["match_libelle"] = None
+    st.session_state["df_rev_clean"] = None
+    st.session_state["df_bo_clean"] = None
+
+    st.session_state["ko_rev_final"] = None
+    st.session_state["ko_bo_final"] = None
+
+
+init_state()
 
 # ============================================================
 # 2. Fonctions Utilitaires
@@ -251,18 +290,109 @@ def display_interactive_table(df, key_suffix):
     return edited_df
 
 
-# ============================================================
-# 3. Logique Principale
-# ============================================================
+def run_api_crm(num_de_piece,value,date):
+    BASE_URL = st.secrets["crm"]["base_url"]
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
 
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD =st.secrets["crm"]["password"]
+    if not PASSWORD:
+        raise RuntimeError("Missing CRM_PASSWORD. …")
+        
+    auth_payload = {"email": EMAIL, "password": PASSWORD}
+    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
+    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+        
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+        
+
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": num_de_piece,
+            "type": "partner",
+            "field": "achat",
+            "value": value,
+            "date":date
+        }
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        json_body = resp.json() if "application/json" in ctype else {}
+
+        return {
+            "status": resp.status_code,
+            "type": "Réponse JSON",
+            "body": json_body,
+            "message": json_body.get("message", "Aucun message"),
+            "success": json_body.get("success", False),
+        }
+
+    except Exception as e:
+        return {
+            "status": resp.status_code if 'resp' in locals() else 500,
+            "type": "Réponse brute ou erreur",
+            "body": resp.text if 'resp' in locals() else str(e),
+            "message": "Erreur de traitement ou JSON invalide",
+            "success": False,
+        }
+
+def clean_dataframe_bo(df_bo):
+
+    # BO
+    df_bo_clean = df_bo.copy()
+    df_bo_clean["Date"] = pd.to_datetime(df_bo_clean["Date"], errors="coerce")
+    df_bo_clean["Montant"] = df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]
+    df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
+    df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
+
+    return df_bo_clean
+
+def check_compte_tiers_invalide(df):
+    comptes = df['Compte'].astype(str)
+    # Vérifie si au moins un ne commence PAS par "401"
+    return (~comptes.str.match(r"^401")).any()
+
+def _to_iso_date(v) -> str | None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (datetime, date, pd.Timestamp)):
+        return pd.to_datetime(v).strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+        except Exception:
+            return None
 # ============================================================
 # 3. Logique Principale
 # ============================================================
 
 def run_interface():
-
-    # st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
-
 
     st.subheader("📥 Étape 1 : Import Revolutt")
     uploaded_revolut = st.file_uploader(
@@ -306,18 +436,80 @@ def run_interface():
     else:
         st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
         st.stop()
+    backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
 
-    # =========================
-    # Gestion du state
-    # =========================
-    if "phase" not in st.session_state:
-        st.session_state["phase"] = "mapping"   # "mapping" ou "dashboard"
-    if "match_libelle" not in st.session_state:
-        st.session_state["match_libelle"] = None
-    if "df_rev_clean" not in st.session_state:
-        st.session_state["df_rev_clean"] = None
-    if "df_bo_clean" not in st.session_state:
-        st.session_state["df_bo_clean"] = None
+
+    # ============================================================
+    # PHASE 0 : Rajout des comptes tiers dans CRM 
+    # ============================================================
+
+    if st.session_state["phase_0"] == "crm":
+        bo=clean_dataframe_bo(df_bo_raw)
+        if check_compte_tiers_invalide(bo):
+            st.warning(
+                "Des achats KO subsistent (Compte Tiers invalide). "
+                "Modifie le tableau puis clique sur « Valider les corrections »."
+            )
+
+            df_unique = bo.drop_duplicates(subset="Libelle").copy()
+
+            # editor_key = f"ko_editor_{st.session_state.ko_cycle}"
+            # validate_key = f"validate_{st.session_state.ko_cycle}"
+            # rerun_key = f"rerun_{st.session_state.ko_cycle}"
+
+            edited = st.data_editor(
+                df_unique[["idx_bo", "Code journal", "Fin mois", "Crédit (€)", "Débit(€)", "Compte", "Libelle", "Date", "Montant"]],
+                hide_index=True,
+                key="crm_editor"
+            )
+
+
+            
+            if st.button("✅ Valider les corrections"):
+                api_logs = []
+                for _, r in edited.iterrows():
+                    if r['Compte'] != "???":
+                        idx = df_bo_raw[
+                            (df_bo_raw["Libelle"] == r["Libelle"]) 
+                        ].index
+                        if not idx.empty:
+                            df_bo_raw.loc[idx, ["Compte"]] = r[["Compte"]].values
+                        with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                            invoice_number = "06-999"
+                            compte_value = str(r["Compte"]).strip()
+                            date = _to_iso_date(str(r["Date"]).strip())
+                                
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                continue
+
+                            result = run_api_crm(invoice_number, compte_value, date)
+                            if result["status"] and 200 <= result["status"]  < 300:
+                                if result["success"]==False:
+                                    if result["message"]=="Line not updated, same value":
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
+                                    else :
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                                else:
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
+
+                with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
+
+                st.session_state["phase_0"] = "crm_valide"
+                st.success("✅ CRM validé. Passage au mapping IA.")
+                st.rerun()
+
+            return
+
+        # STOP tant que la phase 0 n'est pas validée
+        if st.session_state["phase_0"] != "crm_valide":
+            return
+
 
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
@@ -525,7 +717,7 @@ def run_interface():
         "📦 Export vers Sage"
     ])
 
- 
+
 
     # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
 
@@ -730,10 +922,10 @@ def run_interface():
         **Important :**
 
         - En cliquant sur le bouton ci-dessous, vous activez l’automatisation qui enverra  
-          **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
-          à ajouter dans le Back Office.
+        **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
+        à ajouter dans le Back Office.
         - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
-          👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
+        👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
         """
     )
 
