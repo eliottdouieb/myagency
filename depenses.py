@@ -264,7 +264,7 @@ def run_interface():
     # st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
 
 
-    st.subheader("📥 Étape 1 : Import Revolut")
+    st.subheader("📥 Étape 1 : Import Revolutt")
     uploaded_revolut = st.file_uploader(
         "Sélectionnez le fichier CSV Revolut",
         type=["csv"],
