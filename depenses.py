@@ -418,10 +418,19 @@ def run_interface():
         # ============================================================
 # PHASE 0 : GESTION DES COMPTES TIERS (phase == "compte_tiers")
 # ============================================================
+        # ============================================================
+# PHASE 0 : GESTION DES COMPTES TIERS (phase == "compte_tiers")
+# ============================================================
         if st.session_state["phase"] == "compte_tiers":
             # Préparer les dataframes clean pour vérifier les comptes tiers
             # On utilise un mapping vide temporairement juste pour nettoyer
             df_rev_clean_temp, df_bo_clean_temp = clean_dataframes(df_rev_raw, df_bo_raw, {})
+            
+            # Initialiser l'état des corrections
+            if "corrections_validees" not in st.session_state:
+                st.session_state["corrections_validees"] = False
+            if "api_logs_compte_tiers" not in st.session_state:
+                st.session_state["api_logs_compte_tiers"] = []
             
             # Vérifier s'il y a des comptes tiers invalides
             if check_compte_tiers_invalide(df_bo_clean_temp):
@@ -434,6 +443,7 @@ def run_interface():
                 # Clés uniques pour éviter les conflits
                 editor_key = f"ko_editor_{st.session_state.ko_cycle}"
                 validate_key = f"validate_{st.session_state.ko_cycle}"
+                continue_key = f"continue_{st.session_state.ko_cycle}"
                 
                 st.subheader("🔧 Correction des Comptes Tiers")
                 st.info("Modifiez les comptes '???' par les comptes tiers appropriés (ex: 401XXX)")
@@ -452,132 +462,86 @@ def run_interface():
                     }
                 )
                 
-                if st.button("✅ Valider les corrections et continuer", key=validate_key):
-                    api_logs = []
-                    corrections_effectuees = False
-                    
-                    with st.spinner("🔄 Mise à jour des comptes tiers dans le CRM..."):
-                        for _, r in edited.iterrows():
-                            if r['Compte'] != "???":
-                                corrections_effectuees = True
-                                
-                                # Mettre à jour dans le df_bo_raw
-                                idx = df_bo_raw[df_bo_raw["Libelle"] == r["Libelle"]].index
-                                if not idx.empty:
-                                    df_bo_raw.loc[idx, "Compte"] = r["Compte"]
-                                
-                                # Appel API CRM
-                                try:
-                                    invoice_number = str('06-999').strip()  # À adapter selon tes besoins
-                                    compte_value = str(r["Compte"]).strip()
-                                    date_value = _to_iso_date(r["Date"])
+                # ÉTAPE 1 : Validation et appel API
+                if not st.session_state["corrections_validees"]:
+                    if st.button("✅ Valider les corrections", key=validate_key):
+                        api_logs = []
+                        corrections_effectuees = False
+                        
+                        with st.spinner("🔄 Mise à jour des comptes tiers dans le CRM..."):
+                            for _, r in edited.iterrows():
+                                if r['Compte'] != "???":
+                                    corrections_effectuees = True
                                     
-                                    if not invoice_number:
-                                        api_logs.append(f"⚠️ Libellé '{r['Libelle']}' — numéro de pièce manquant, ligne ignorée.")
-                                        continue
+                                    # Mettre à jour dans le df_bo_raw
+                                    idx = df_bo_raw[df_bo_raw["Libelle"] == r["Libelle"]].index
+                                    if not idx.empty:
+                                        df_bo_raw.loc[idx, "Compte"] = r["Compte"]
                                     
-                                    result = run_api_crm(invoice_number, compte_value, date_value)
-                                    
-                                    if result.get("status") and 200 <= result["status"] < 300:
-                                        if result.get("success") == False:
-                                            if result.get("message") == "Line not updated, same value":
-                                                api_logs.append(f"ℹ️ {r['Libelle']} — Compte identique sur CRM, pas de mise à jour")
+                                    # Appel API CRM
+                                    try:
+                                        invoice_number = str('06-999').strip()  # À adapter selon tes besoins
+                                        compte_value = str(r["Compte"]).strip()
+                                        date_value = _to_iso_date(r["Date"])
+                                        
+                                        if not invoice_number:
+                                            api_logs.append(f"⚠️ Libellé '{r['Libelle']}' — numéro de pièce manquant, ligne ignorée.")
+                                            continue
+                                        
+                                        result = run_api_crm(invoice_number, compte_value, date_value)
+                                        
+                                        if result.get("status") and 200 <= result["status"] < 300:
+                                            if result.get("success") == False:
+                                                if result.get("message") == "Line not updated, same value":
+                                                    api_logs.append(f"ℹ️ {r['Libelle']} — Compte identique sur CRM, pas de mise à jour")
+                                                else:
+                                                    api_logs.append(f"❌ {r['Libelle']} — Numéro de pièce non existant sur CRM")
                                             else:
-                                                api_logs.append(f"❌ {r['Libelle']} — Numéro de pièce non existant sur CRM")
+                                                api_logs.append(f"✅ {r['Libelle']} — Mise à jour réussie (compte: {compte_value})")
                                         else:
-                                            api_logs.append(f"✅ {r['Libelle']} — Mise à jour réussie (compte: {compte_value})")
-                                    else:
-                                        api_logs.append(f"❌ {r['Libelle']} — Erreur HTTP {result.get('status')}")
-                                
-                                except Exception as e:
-                                    api_logs.append(f"❌ {r['Libelle']} — Erreur: {str(e)}")
+                                            api_logs.append(f"❌ {r['Libelle']} — Erreur HTTP {result.get('status')}")
+                                    
+                                    except Exception as e:
+                                        api_logs.append(f"❌ {r['Libelle']} — Erreur: {str(e)}")
+                        
+                        if corrections_effectuees:
+                            st.session_state["api_logs_compte_tiers"] = api_logs
+                            st.session_state["corrections_validees"] = True
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Aucune correction effectuée. Modifiez au moins un compte '???' avant de continuer.")
+                
+                # ÉTAPE 2 : Affichage des logs et bouton pour continuer
+                if st.session_state["corrections_validees"]:
+                    st.success("✅ Corrections enregistrées dans le CRM !")
                     
                     # Afficher les logs
-                    if api_logs:
+                    if st.session_state["api_logs_compte_tiers"]:
                         with st.expander("📋 Détails des mises à jour CRM", expanded=True):
-                            for line in api_logs:
+                            for line in st.session_state["api_logs_compte_tiers"]:
                                 st.write(line)
                     
-                    if corrections_effectuees:
-                        st.success("✅ Corrections enregistrées ! Passage à l'analyse IA...")
-                        # Incrémenter le cycle pour reset les keys
+                    st.markdown("---")
+                    st.info("👉 Cliquez sur le bouton ci-dessous pour passer à l'analyse IA des libellés")
+                    
+                    if st.button("🚀 Continuer vers l'analyse IA", key=continue_key, type="primary"):
+                        # Reset des états
+                        st.session_state["corrections_validees"] = False
+                        st.session_state["api_logs_compte_tiers"] = []
                         st.session_state.ko_cycle += 1
+                        
                         # Passer à la phase mapping
                         st.session_state["phase"] = "mapping"
-                        # Forcer le rechargement des données
                         st.session_state["match_libelle"] = None
                         st.rerun()
-                    else:
-                        st.warning("⚠️ Aucune correction effectuée. Modifiez au moins un compte '???' avant de continuer.")
                 
-                # On s'arrête ici tant que les comptes tiers ne sont pas corrigés
-                return
-            
-            else:
-                # Pas de comptes tiers invalides, on passe directement à la phase mapping
-                st.session_state["phase"] = "mapping"
-                st.rerun()
-
-        with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
-            if st.session_state["match_libelle"] is None:
-                # Premier passage : on appelle l'IA
-                match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
-                st.session_state["match_libelle"] = match_libelle
-            else:
-                # Rerun : on réutilise le mapping déjà obtenu
-                match_libelle = st.session_state["match_libelle"]
-
-            status.write(match_libelle)
-            status.update(
-                label="IA terminée - Mapping terminé !",
-                state="complete",
-                expanded=False
-            )
-
-        st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
-
-        raw_map = st.session_state["match_libelle"]
-        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
-        df_mapping.insert(0, "Valide", True)
-        df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
-
-        edited_mapping = st.data_editor(
-            df_mapping,
-            column_config={
-                "Valide": st.column_config.CheckboxColumn("Accepter ?", default=True),
-                "Libelle Revolut": st.column_config.TextColumn("Libellé Revolut", disabled=True),
-                "Libelle BO": st.column_config.TextColumn("Libellé BO", disabled=True),
-            },
-            use_container_width=True,
-            hide_index=True,
-            key="mapping_editor"
-        )
-
-        # Bouton de validation du mapping
-        if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-            # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
-            current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
-
-            # 2. On crée une copie que l'on va mettre à jour
-            updated_map = current_map.copy()
-
-            # 3. Pour chaque ligne décochée, on force "match non trouvé"
-            for index, row in edited_mapping.iterrows():
-                if row["Valide"] is False:
-                    updated_map[row["Libelle Revolut"]] = "match non trouvé"
-
-            # 4. On sauvegarde le mapping corrigé en session
-            st.session_state["match_libelle"] = updated_map
-
-            # 5. On prépare les dataframes clean et on les met en session
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, updated_map)
-            st.session_state["df_rev_clean"] = df_rev_clean
-            st.session_state["df_bo_clean"] = df_bo_clean
-
-            # 6. On passe en phase dashboard et on rerun
-            st.session_state["phase"] = "dashboard"
-            st.rerun()
-
+        # On s'arrête ici tant qu'on n'a pas cliqué sur "Continuer"
+        return
+    
+    else:
+        # Pas de comptes tiers invalides, on passe directement à la phase mapping
+        st.session_state["phase"] = "mapping"
+        st.rerun()
         # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
         return
 
