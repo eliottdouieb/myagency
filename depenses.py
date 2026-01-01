@@ -164,22 +164,26 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
         temperature=0.1,
     )
 
-    raw_content = response.choices[0].message.content.strip()
+    raw_content = (response.choices[0].message.content or "").strip()
 
+    # 1) Si l'IA renvoie un bloc ```json ... ```
     if raw_content.startswith("```"):
         parts = raw_content.split("```")
         if len(parts) >= 2:
-            raw_content = parts[1]
+            raw_content = parts[1].strip()
 
-    raw_content = raw_content.lstrip()
-
+    # 2) Si l'IA renvoie "json\n{...}"
     if raw_content.lower().startswith("json"):
         raw_content = raw_content.split("\n", 1)[1].lstrip()
 
+    # 3) Dernier nettoyage léger
+    raw_content = raw_content.strip()
+
     try:
         return json.loads(raw_content)
-    except:
+    except Exception:
         return {}
+
 
 
 def clean_dataframes(df_rev, df_bo, match_libelle):
