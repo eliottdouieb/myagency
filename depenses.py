@@ -10,7 +10,6 @@ import plotly.express as px
 import requests
 from datetime import datetime, date
 
-
 # ============================================================
 # 0. Configuration de la page & Style & Secrets
 # ============================================================
@@ -167,8 +166,8 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
 
     raw_content = response.choices[0].message.content.strip()
 
-    if raw_content.startswith("```"):
-        parts = raw_content.split("```")
+    if raw_content.startswith(""):
+        parts = raw_content.split("")
         if len(parts) >= 2:
             raw_content = parts[1]
 
@@ -280,7 +279,6 @@ def _to_iso_date(v) -> str | None:
             return None
         
 def run_api_crm(num_de_piece,value,date):
-
     BASE_URL = st.secrets["crm"]["base_url"]
     AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
     ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
@@ -344,13 +342,6 @@ def run_api_crm(num_de_piece,value,date):
             "success": False,
         }
 
-def clean_bo_only(df_bo: pd.DataFrame) -> pd.DataFrame:
-    df_bo_clean = df_bo.copy()
-    df_bo_clean["Date"] = pd.to_datetime(df_bo_clean["Date"], errors="coerce")
-    df_bo_clean["Montant"] = df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]
-    df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
-    df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
-    return df_bo_clean
 
 # ============================================================
 # 3. Logique Principale
@@ -396,22 +387,22 @@ def run_interface():
     st.markdown("---")
 
     # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
-    # 1. Chargement initial uniquement si pas déjà en session
-    if st.session_state.get("df_rev_raw") is None or st.session_state.get("df_bo_raw") is None:
-        df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
-        st.session_state["df_rev_raw"] = df_rev_raw
-        st.session_state["df_bo_raw"] = df_bo_raw
+    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+    revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
+
+    if "Libelle" in df_bo_raw.columns:
+        backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
     else:
-        df_rev_raw = st.session_state["df_rev_raw"]
-        df_bo_raw = st.session_state["df_bo_raw"]
-
-
+        st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
+        st.stop()
 
     # =========================
     # Gestion du state
     # =========================
     if "phase" not in st.session_state:
-        st.session_state["phase"] = "mapping"   # "mapping" ou "dashboard"
+        st.session_state["phase"] = "compte_tiers"  # "compte_tiers" -> "mapping" -> "dashboard"
+    if "ko_cycle" not in st.session_state:
+        st.session_state["ko_cycle"] = 0
     if "match_libelle" not in st.session_state:
         st.session_state["match_libelle"] = None
     if "df_rev_clean" not in st.session_state:
@@ -419,173 +410,113 @@ def run_interface():
     if "df_bo_clean" not in st.session_state:
         st.session_state["df_bo_clean"] = None
 
-    if "ko_cycle" not in st.session_state:
-        st.session_state["ko_cycle"] = 0
-    if "compte_tiers_done" not in st.session_state:
-        st.session_state["compte_tiers_done"] = False
-
-    # IMPORTANT: on persiste les raw pour réinjecter les corrections
-    if "df_bo_raw" not in st.session_state or st.session_state["df_bo_raw"] is None:
-        st.session_state["df_bo_raw"] = df_bo_raw
-    if "df_rev_raw" not in st.session_state or st.session_state["df_rev_raw"] is None:
-        st.session_state["df_rev_raw"] = df_rev_raw
-    if "compte_tiers_logs" not in st.session_state:
-        st.session_state["compte_tiers_logs"] = []
-    if "show_compte_tiers_result" not in st.session_state:
-        st.session_state["show_compte_tiers_result"] = False
-
-
-
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
     if st.session_state["phase"] == "mapping":
 
-    # ============================================================
-    # Gestion des comptes tiers (AVANT mapping IA)
-    # ============================================================
-
-        # On reprend les raw depuis la session (car on va les modifier)
-        df_bo_raw = st.session_state["df_bo_raw"]
-        df_rev_raw = st.session_state["df_rev_raw"]
-
-                # ✅ Si on doit afficher le résultat des corrections (CRM logs), on bloque l'IA
-        if st.session_state.get("show_compte_tiers_result"):
-            st.success("✅ Comptes tiers corrigés. Vérifie les logs ci-dessous puis continue.")
-            with st.expander("Détails des mises à jour CRM", expanded=True):
-                for line in st.session_state.get("compte_tiers_logs", []):
-                    st.write(line)
-
-            if st.button("➡️ Continuer vers le mapping IA"):
-                st.session_state["show_compte_tiers_result"] = False
-                st.rerun()
-
-            return  # ⛔ stop ici : pas de mapping IA tant que pas 'Continuer'
-
-        # On crée un BO clean "préliminaire" (indépendant du mapping IA)
-        df_bo_clean_pre = clean_bo_only(df_bo_raw)
-
-        # Détection: soit "Compte == ???", soit compte qui ne commence pas par 401
-        has_invalid = False
-        if "Compte" in df_bo_clean_pre.columns:
-            has_invalid = (
-                (df_bo_clean_pre["Compte"].astype(str).str.strip() == "???").any()
-                or check_compte_tiers_invalide(df_bo_clean_pre)
-            )
-
-        if has_invalid and not st.session_state["compte_tiers_done"]:
-            st.warning("⚠️ Des comptes tiers BO sont invalides (ex: '???' ou non-401). Corrigez avant de lancer l'IA.")
-
-            df_ko_compte_tiers = df_bo_clean_pre[df_bo_clean_pre["Compte"].astype(str).str.strip() == "???"].copy()
-
-            if df_ko_compte_tiers.empty:
-                st.info("Il y a des comptes non-401, mais aucun '???'. (Tu peux adapter ici si tu veux les éditer aussi.)")
-            else:
-                df_unique = df_ko_compte_tiers.drop_duplicates(subset="Libelle").copy()
-
-                editor_key = f"ko_editor_{st.session_state['ko_cycle']}"
-                validate_key = f"validate_{st.session_state['ko_cycle']}"
-
+        # ============================================================
+# PHASE 0 : GESTION DES COMPTES TIERS (phase == "compte_tiers")
+# ============================================================
+        if st.session_state["phase"] == "compte_tiers":
+            # Préparer les dataframes clean pour vérifier les comptes tiers
+            # On utilise un mapping vide temporairement juste pour nettoyer
+            df_rev_clean_temp, df_bo_clean_temp = clean_dataframes(df_rev_raw, df_bo_raw, {})
+            
+            # Vérifier s'il y a des comptes tiers invalides
+            if check_compte_tiers_invalide(df_bo_clean_temp):
+                st.warning("⚠️ Il existe des Comptes Tiers invalides avec '???' au lieu de '401XXX'. Veuillez les corriger avant de continuer.")
+                
+                # Filtrer les lignes avec compte invalide
+                df_ko_compte_tiers = df_bo_clean_temp[df_bo_clean_temp['Compte'] == '???']
+                df_unique = df_ko_compte_tiers.drop_duplicates(subset="Libelle")
+                
+                # Clés uniques pour éviter les conflits
+                editor_key = f"ko_editor_{st.session_state.ko_cycle}"
+                validate_key = f"validate_{st.session_state.ko_cycle}"
+                
+                st.subheader("🔧 Correction des Comptes Tiers")
+                st.info("Modifiez les comptes '???' par les comptes tiers appropriés (ex: 401XXX)")
+                
+                # Éditeur de données
                 edited = st.data_editor(
-                    df_unique[["idx_bo", "Code journal", "Fin mois", "Crédit (€)", "Débit(€)", "Compte", "Libelle", "Date", "Montant"]],
+                    df_unique[['idx_bo', 'Code journal', 'Crédit (€)', 'Débit(€)', 'Compte', 'Libelle', 'Date', 'Montant']],
                     key=editor_key,
                     hide_index=True,
+                    column_config={
+                        "Compte": st.column_config.TextColumn(
+                            "Compte Tiers",
+                            help="Entrez le numéro de compte (ex: 401XXX)",
+                            max_chars=20,
+                        )
+                    }
                 )
-
-                if st.button("✅ Valider les corrections", key=validate_key):
-                    # 1) Réinjecter les comptes corrigés dans df_bo_raw (source)
-                    # On met à jour toutes les lignes du BO raw ayant le même Libelle
-                    for _, r in edited.iterrows():
-                        new_compte = str(r.get("Compte", "")).strip()
-                        lib = r.get("Libelle", None)
-
-                        if lib is None:
-                            continue
-                        if new_compte and new_compte != "???":
-                            mask = (df_bo_raw["Libelle"] == lib)
-                            df_bo_raw.loc[mask, "Compte"] = new_compte
-
-                    # 2) Optionnel: push CRM (uniquement si tu as une colonne "N° pièce"/invoice)
+                
+                if st.button("✅ Valider les corrections et continuer", key=validate_key):
                     api_logs = []
-
-                    # Essaie de deviner la colonne invoice number
-                    invoice_cols = ["N° pièce", "NoPiece", "InvoiceNumber", "Numéro de pièce", "Piece"]
-                    invoice_col = next((c for c in invoice_cols if c in df_bo_raw.columns), None)
-
-                    if invoice_col is None:
-                        api_logs.append("⚠️ Colonne numéro de pièce introuvable dans le BO → mise à jour CRM ignorée.")
-                    else:
-                        with st.spinner("Mise à jour CRM (seulement les lignes modifiées)…"):
-                            # On boucle sur les lignes éditées et on update CRM
-                            for _, r in edited.iterrows():
-                                new_compte = str(r.get("Compte", "")).strip()
-                                lib = r.get("Libelle", None)
-                                if not lib or not new_compte or new_compte == "???":
-                                    continue
-
-                                # on prend la 1ère facture correspondante dans le raw (même libellé)
-                                rows = df_bo_raw[df_bo_raw["Libelle"] == lib]
-                                if rows.empty:
-                                    continue
-
-                                invoice_number = str(rows.iloc[0][invoice_col]).strip()
-                                date_iso = _to_iso_date(rows.iloc[0].get("Date", None))
-
-                                if not invoice_number:
-                                    api_logs.append(f"⚠️ Libellé '{lib}': pas de numéro de pièce → skip CRM")
-                                    continue
-
-                                result = run_api_crm(invoice_number, new_compte, date_iso)
-
-                                if result["status"] and 200 <= result["status"] < 300:
-                                    if result["success"] is False:
-                                        if result["message"] == "Line not updated, same value":
-                                            api_logs.append(
-                                                f"⚠️ CRM: {invoice_number} → {new_compte} | valeur identique, pas de MAJ"
-                                            )
+                    corrections_effectuees = False
+                    
+                    with st.spinner("🔄 Mise à jour des comptes tiers dans le CRM..."):
+                        for _, r in edited.iterrows():
+                            if r['Compte'] != "???":
+                                corrections_effectuees = True
+                                
+                                # Mettre à jour dans le df_bo_raw
+                                idx = df_bo_raw[df_bo_raw["Libelle"] == r["Libelle"]].index
+                                if not idx.empty:
+                                    df_bo_raw.loc[idx, "Compte"] = r["Compte"]
+                                
+                                # Appel API CRM
+                                try:
+                                    invoice_number = str('06-999').strip()  # À adapter selon tes besoins
+                                    compte_value = str(r["Compte"]).strip()
+                                    date_value = _to_iso_date(r["Date"])
+                                    
+                                    if not invoice_number:
+                                        api_logs.append(f"⚠️ Libellé '{r['Libelle']}' — numéro de pièce manquant, ligne ignorée.")
+                                        continue
+                                    
+                                    result = run_api_crm(invoice_number, compte_value, date_value)
+                                    
+                                    if result.get("status") and 200 <= result["status"] < 300:
+                                        if result.get("success") == False:
+                                            if result.get("message") == "Line not updated, same value":
+                                                api_logs.append(f"ℹ️ {r['Libelle']} — Compte identique sur CRM, pas de mise à jour")
+                                            else:
+                                                api_logs.append(f"❌ {r['Libelle']} — Numéro de pièce non existant sur CRM")
                                         else:
-                                            api_logs.append(
-                                                f"❌ CRM: {invoice_number} → {new_compte} | {result['message']}"
-                                            )
+                                            api_logs.append(f"✅ {r['Libelle']} — Mise à jour réussie (compte: {compte_value})")
                                     else:
-                                        api_logs.append(
-                                            f"✅ CRM: {invoice_number} → {new_compte} | {result['message']}"
-                                        )
-                                else:
-                                    api_logs.append(
-                                        f"❌ CRM: {invoice_number} → {new_compte} (HTTP {result['status']}) | {result['body']}"
-                                    )
-
-
-                    # 3) Sauvegarde + verrouillage + rerun
-                    # 3) Sauvegarde + verrouillage (PAS de rerun automatique)
-                    st.session_state["df_bo_raw"] = df_bo_raw
-                    st.session_state["compte_tiers_done"] = True
-                    st.session_state["ko_cycle"] += 1
-
-                    # on stocke les logs pour les afficher après
-                    st.session_state["compte_tiers_logs"] = api_logs
-                    st.session_state["show_compte_tiers_result"] = True
-
-                    st.rerun()  # ✅ important : on rerun pour afficher l'écran "logs + continuer"
-
-
-
-            # Tant que ce n’est pas corrigé, on bloque la suite (donc pas d’IA)
-            return
-
-        # Recalcule des labels à partir des RAW en session (après corrections éventuelles)
-        df_rev_raw = st.session_state["df_rev_raw"]
-        df_bo_raw  = st.session_state["df_bo_raw"]
-
-        revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
-
-        if "Libelle" in df_bo_raw.columns:
-            backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
-        else:
-            st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
-            st.stop()
-
+                                        api_logs.append(f"❌ {r['Libelle']} — Erreur HTTP {result.get('status')}")
+                                
+                                except Exception as e:
+                                    api_logs.append(f"❌ {r['Libelle']} — Erreur: {str(e)}")
+                    
+                    # Afficher les logs
+                    if api_logs:
+                        with st.expander("📋 Détails des mises à jour CRM", expanded=True):
+                            for line in api_logs:
+                                st.write(line)
+                    
+                    if corrections_effectuees:
+                        st.success("✅ Corrections enregistrées ! Passage à l'analyse IA...")
+                        # Incrémenter le cycle pour reset les keys
+                        st.session_state.ko_cycle += 1
+                        # Passer à la phase mapping
+                        st.session_state["phase"] = "mapping"
+                        # Forcer le rechargement des données
+                        st.session_state["match_libelle"] = None
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Aucune correction effectuée. Modifiez au moins un compte '???' avant de continuer.")
+                
+                # On s'arrête ici tant que les comptes tiers ne sont pas corrigés
+                return
+            
+            else:
+                # Pas de comptes tiers invalides, on passe directement à la phase mapping
+                st.session_state["phase"] = "mapping"
+                st.rerun()
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
             if st.session_state["match_libelle"] is None:
@@ -781,7 +712,7 @@ def run_interface():
     col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "✅ Matchessssss & Validation",
+        "✅ Matches & Validation",
         "⚠️ KO Revolut (À traiter)",
         "⚠️ KO BackOffice",
         "📤 Relances des dépenses",
