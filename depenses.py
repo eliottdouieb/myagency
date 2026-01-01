@@ -7,8 +7,6 @@ from xlsx2csv import Xlsx2csv
 from openai import OpenAI
 import gspread
 import plotly.express as px
-import requests
-from datetime import datetime, date
 
 # ============================================================
 # 0. Configuration de la page & Style & Secrets
@@ -164,26 +162,22 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
         temperature=0.1,
     )
 
-    raw_content = (response.choices[0].message.content or "").strip()
+    raw_content = response.choices[0].message.content.strip()
 
-    # 1) Si l'IA renvoie un bloc ```json ... ```
     if raw_content.startswith("```"):
         parts = raw_content.split("```")
         if len(parts) >= 2:
-            raw_content = parts[1].strip()
+            raw_content = parts[1]
 
-    # 2) Si l'IA renvoie "json\n{...}"
+    raw_content = raw_content.lstrip()
+
     if raw_content.lower().startswith("json"):
         raw_content = raw_content.split("\n", 1)[1].lstrip()
 
-    # 3) Dernier nettoyage léger
-    raw_content = raw_content.strip()
-
     try:
         return json.loads(raw_content)
-    except Exception:
+    except:
         return {}
-
 
 
 def clean_dataframes(df_rev, df_bo, match_libelle):
@@ -256,206 +250,81 @@ def display_interactive_table(df, key_suffix):
 
     return edited_df
 
-def check_compte_tiers_invalide(df):
-    comptes = df['Compte'].astype(str)
-    # Vérifie si au moins un ne commence PAS par "401"
-    return (~comptes.str.match(r"^401")).any()
-
-
-def _to_iso_date(v) -> str | None:
-
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return None
-    if isinstance(v, (datetime, date, pd.Timestamp)):
-        return pd.to_datetime(v).strftime("%Y-%m-%d")
-    s = str(v).strip()
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
-        try:
-            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-    try:
-        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
-    except Exception:
-        try:
-            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
-        except Exception:
-            return None
-        
-def run_api_crm(num_de_piece,value,date):
-    BASE_URL = st.secrets["crm"]["base_url"]
-    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
-    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
-
-    EMAIL = st.secrets["crm"]["email"]
-    PASSWORD =st.secrets["crm"]["password"]
-    if not PASSWORD:
-        raise RuntimeError("Missing CRM_PASSWORD. …")
-        
-    auth_payload = {"email": EMAIL, "password": PASSWORD}
-    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
-    auth_resp.raise_for_status()
-
-    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
-    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
-    if not auth_data.get("success"):
-        raise RuntimeError(f"Login failed: {auth_data}")
-        
-    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
-    ApiToken = str(auth_data.get("ApiToken", "")).strip()
-    if not ConciergeHash or not ApiToken:
-        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
-        
-
-    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
-
-    payload = {
-        "payload": {
-            "InvoiceNumber": num_de_piece,
-            "type": "partner",
-            "field": "achat",
-            "value": value,
-            "date":date
-        }
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "ApiToken": ApiToken,
-    }
-
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
-        ctype = (resp.headers.get("content-type") or "").lower()
-        json_body = resp.json() if "application/json" in ctype else {}
-
-        return {
-            "status": resp.status_code,
-            "type": "Réponse JSON",
-            "body": json_body,
-            "message": json_body.get("message", "Aucun message"),
-            "success": json_body.get("success", False),
-        }
-
-    except Exception as e:
-        return {
-            "status": resp.status_code if 'resp' in locals() else 500,
-            "type": "Réponse brute ou erreur",
-            "body": resp.text if 'resp' in locals() else str(e),
-            "message": "Erreur de traitement ou JSON invalide",
-            "success": False,
-        }
-
 
 # ============================================================
 # 3. Logique Principale
 # ============================================================
 
+# ============================================================
+# 3. Logique Principale
+# ============================================================
 
 def run_interface():
+
+    # st.write("✅ depenses.py version 2025-12-04 14h - DEBUG")
+
+
     st.subheader("📥 Étape 1 : Import Revolut")
-    uploaded_revolut = st.file_uploader("Sélectionnez le fichier CSV Revolut", type=["csv"], key="u_rev")
+    uploaded_revolut = st.file_uploader(
+        "Sélectionnez le fichier CSV Revolut",
+        type=["csv"],
+        key="u_rev"
+    )
 
     uploaded_bo = None
-    if uploaded_revolut:
-        st.markdown("---")
-        st.subheader("📥 Étape 2 : Import BackOffice")
-        uploaded_bo = st.file_uploader("Sélectionnez l'export Excel BackOffice", type=["xlsx"], key="u_bo")
 
-    if not uploaded_revolut or not uploaded_bo:
-        st.info("Veuillez charger les deux fichiers pour commencer.")
+    if uploaded_revolut:
+        st.success("✅ Fichier Revolut chargé.")
+        st.markdown("---")
+
+        st.subheader("📥 Étape 2 : Import BackOffice")
+        uploaded_bo = st.file_uploader(
+            "Sélectionnez l'export Excel BackOffice",
+            type=["xlsx"],
+            key="u_bo"
+        )
+
+    # Rien d'uploadé encore
+    if not uploaded_revolut:
+        st.info("Veuillez commencer par charger le fichier Revolut ci-dessus.")
         return
 
-    # ============================================================
-    # 1. INITIALISATION DU SESSION STATE
-    # ============================================================
+    # Si Revolut OK mais pas encore BO, on s'arrête là
+    if uploaded_revolut and not uploaded_bo:
+        return
+
+    # Ici : uploaded_revolut et uploaded_bo sont présents
+    st.success("✅ Fichier BackOffice chargé. Lancement de l'analyse...")
+    st.markdown("---")
+
+    # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
+    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+    revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
+
+    if "Libelle" in df_bo_raw.columns:
+        backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
+    else:
+        st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
+        st.stop()
+
+    # =========================
+    # Gestion du state
+    # =========================
     if "phase" not in st.session_state:
-        st.session_state["phase"] = "compte_tiers"
-    if "api_logs_compte_tiers" not in st.session_state:
-        st.session_state["api_logs_compte_tiers"] = []
+        st.session_state["phase"] = "mapping"   # "mapping" ou "dashboard"
     if "match_libelle" not in st.session_state:
         st.session_state["match_libelle"] = None
-    
-    # Stockage des DataFrames bruts pour persister les modifications des comptes tiers
-    if "df_rev_raw" not in st.session_state or st.sidebar.button("🔄 Reset Données"):
-        df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
-        st.session_state["df_rev_raw"] = df_rev_raw
-        st.session_state["df_bo_raw"] = df_bo_raw
+    if "df_rev_clean" not in st.session_state:
+        st.session_state["df_rev_clean"] = None
+    if "df_bo_clean" not in st.session_state:
+        st.session_state["df_bo_clean"] = None
 
-    # Raccourcis
-    df_rev_raw = st.session_state["df_rev_raw"]
-    df_bo_raw = st.session_state["df_bo_raw"]
-
-    # ============================================================
-    # PHASE 0 : GESTION DES COMPTES TIERS
-    # ============================================================
-    if st.session_state["phase"] == "compte_tiers":
-        # On vérifie l'état actuel des comptes
-        _, df_bo_clean_temp = clean_dataframes(df_rev_raw, df_bo_raw, {})
-        has_invalide = check_compte_tiers_invalide(df_bo_clean_temp)
-
-        # Si on a des logs, c'est qu'on vient de finir le traitement : on les affiche en priorité
-        if st.session_state["api_logs_compte_tiers"]:
-            st.success("✅ Traitement CRM terminé.")
-            with st.expander("📋 Détails des mises à jour CRM", expanded=True):
-                for line in st.session_state["api_logs_compte_tiers"]:
-                    st.write(line)
-            
-            st.markdown("---")
-            if st.button("🚀 Passer à l'analyse IA des libellés", type="primary"):
-                st.session_state["phase"] = "mapping"
-                st.rerun()
-            return # On bloque ici pour laisser l'utilisateur lire les logs
-
-        # Si on n'a pas encore traité et qu'il y a des erreurs
-        if has_invalide:
-            st.subheader("🔧 Correction des Comptes Tiers")
-            st.warning("⚠️ Certains comptes sont marqués '???'. Modifiez-les avant de continuer.")
-            
-            df_ko_compte_tiers = df_bo_clean_temp[df_bo_clean_temp['Compte'] == '???']
-            df_unique = df_ko_compte_tiers.drop_duplicates(subset="Libelle")
-            
-            edited = st.data_editor(
-                df_unique[['idx_bo', 'Compte', 'Libelle', 'Date', 'Montant']],
-                key="editor_tiers_invalide",
-                hide_index=True,
-                column_config={"Compte": st.column_config.TextColumn("Compte Tiers (401XXX)", max_chars=20)}
-            )
-            
-            if st.button("✅ Valider et Envoyer au CRM"):
-                api_logs = []
-                # On applique les changements dans le session state
-                for _, row in edited.iterrows():
-                    if row['Compte'] != "???":
-                        # Mise à jour persistante dans le session state
-                        mask = st.session_state["df_bo_raw"]["Libelle"] == row["Libelle"]
-                        st.session_state["df_bo_raw"].loc[mask, "Compte"] = row["Compte"]
-                        
-                        # API
-                        res = run_api_crm('06-999', str(row["Compte"]).strip(), _to_iso_date(row["Date"]))
-                        status_icon = "✅" if res.get("success") else "❌"
-                        msg = res.get("message", "Erreur")
-                        api_logs.append(f"{status_icon} {row['Libelle']} : {msg} ({row['Compte']})")
-                
-                st.session_state["api_logs_compte_tiers"] = api_logs
-                st.rerun()
-            return
-
-        else:
-            # Pas d'invalides, on passe à la suite
-            st.session_state["phase"] = "mapping"
-            st.rerun()
-
-    # ============================================================
-    # PHASE 1 : MAPPING IA
-    # ============================================================
     # ============================================================
     # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
     # ============================================================
     if st.session_state["phase"] == "mapping":
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
-
             if st.session_state["match_libelle"] is None:
                 # Premier passage : on appelle l'IA
                 match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
@@ -492,7 +361,6 @@ def run_interface():
 
         # Bouton de validation du mapping
         if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
-
             # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
             current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
 
@@ -520,64 +388,98 @@ def run_interface():
         return
 
     # ============================================================
-    # PHASE 2 : DASHBOARD (Phase finale)
+    # PHASE 2 : DASHBOARD & MATCHING (phase == "dashboard")
     # ============================================================
-    if st.session_state["phase"] == "dashboard":
-        # Ton code de matching et d'affichage des onglets (tab1, tab2, etc.) ici...
-        st.write("### 📊 Tableau de bord de rapprochement")
-        # (Insère ici la suite de ton code original de la phase dashboard)
-        # ...
 
-        # On récupère les objets depuis le state
-        match_libelle = st.session_state["match_libelle"]
-        df_rev_clean = st.session_state["df_rev_clean"]
-        df_bo_clean = st.session_state["df_bo_clean"]
+    # On récupère les objets depuis le state
+    match_libelle = st.session_state["match_libelle"]
+    df_rev_clean = st.session_state["df_rev_clean"]
+    df_bo_clean = st.session_state["df_bo_clean"]
 
-        # Sécurité : si pour une raison X les df ne sont pas en state, on les recalcule
-        if df_rev_clean is None or df_bo_clean is None:
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
-            st.session_state["df_rev_clean"] = df_rev_clean
-            st.session_state["df_bo_clean"] = df_bo_clean
+    # Sécurité : si pour une raison X les df ne sont pas en state, on les recalcule
+    if df_rev_clean is None or df_bo_clean is None:
+        df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, match_libelle)
+        st.session_state["df_rev_clean"] = df_rev_clean
+        st.session_state["df_bo_clean"] = df_bo_clean
 
-        # 3. Matching (Calcul initial)
-        used_rev = set()
-        used_bo = set()
+    # 3. Matching (Calcul initial)
+    used_rev = set()
+    used_bo = set()
 
-        def filtre_nouveaux(df):
-            return df[
-                ~df["idx_rev"].isin(used_rev)
-                & ~df["idx_bo"].isin(used_bo)
-            ]
+    def filtre_nouveaux(df):
+        return df[
+            ~df["idx_rev"].isin(used_rev)
+            & ~df["idx_bo"].isin(used_bo)
+        ]
 
-        def maj_sets(df):
-            used_rev.update(df["idx_rev"].dropna().unique())
-            used_bo.update(df["idx_bo"].dropna().unique())
+    def maj_sets(df):
+        used_rev.update(df["idx_rev"].dropna().unique())
+        used_bo.update(df["idx_bo"].dropna().unique())
 
-        # -- Algorithmes --
-        matches_ok = (
-            df_rev_clean.merge(
-                df_bo_clean,
-                left_on=["Date", "Montant", "Libelle_match"],
-                right_on=["Date", "Montant", "Libelle"],
-                how="inner",
-                suffixes=("_rev", "_bo")
-            )
-            .drop_duplicates(subset=["idx_rev", "idx_bo"])
+    # -- Algorithmes --
+    matches_ok = (
+        df_rev_clean.merge(
+            df_bo_clean,
+            left_on=["Date", "Montant", "Libelle_match"],
+            right_on=["Date", "Montant", "Libelle"],
+            how="inner",
+            suffixes=("_rev", "_bo")
         )
-        maj_sets(matches_ok)
+        .drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    maj_sets(matches_ok)
 
-        matches_sans_libelle = filtre_nouveaux(
-            df_rev_clean.merge(
-                df_bo_clean,
-                left_on=["Date", "Montant"],
-                right_on=["Date", "Montant"],
-                how="inner",
-                suffixes=("_rev", "_bo")
-            ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-        )
-        maj_sets(matches_sans_libelle)
+    matches_sans_libelle = filtre_nouveaux(
+        df_rev_clean.merge(
+            df_bo_clean,
+            left_on=["Date", "Montant"],
+            right_on=["Date", "Montant"],
+            how="inner",
+            suffixes=("_rev", "_bo")
+        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    maj_sets(matches_sans_libelle)
 
-        m_sans_conversion = (
+    m_sans_conversion = (
+    df_rev_clean.merge(
+        df_bo_clean,
+        left_on=["Libelle_match"],
+        right_on=["Libelle"],
+        how="inner",
+        suffixes=("_rev", "_bo")
+    )
+    .drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
+    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
+    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
+    matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
+    
+    maj_sets(matches_potentiel_sans_conversion)
+
+    matches_sans_date = filtre_nouveaux(
+        df_rev_clean.merge(
+            df_bo_clean,
+            left_on=["Montant", "Libelle_match"],
+            right_on=["Montant", "Libelle"],
+            how="inner",
+            suffixes=("_rev", "_bo")
+        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    maj_sets(matches_sans_date)
+
+    matches_sans_montant = filtre_nouveaux(
+        df_rev_clean.merge(
+            df_bo_clean,
+            left_on=["Date", "Libelle_match"],
+            right_on=["Date", "Libelle"],
+            how="inner",
+            suffixes=("_rev", "_bo")
+        ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+    )
+    maj_sets(matches_sans_montant)
+
+    m_pot = (
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Libelle_match"],
@@ -586,83 +488,44 @@ def run_interface():
             suffixes=("_rev", "_bo")
         )
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
-        )
-        m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
-        matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
-        matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
-        matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
-        
-        maj_sets(matches_potentiel_sans_conversion)
+    )
+    m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
+    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
+    maj_sets(matches_potentiel)
 
-        matches_sans_date = filtre_nouveaux(
-            df_rev_clean.merge(
-                df_bo_clean,
-                left_on=["Montant", "Libelle_match"],
-                right_on=["Montant", "Libelle"],
-                how="inner",
-                suffixes=("_rev", "_bo")
-            ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-        )
-        maj_sets(matches_sans_date)
+    # KO initiaux
+    matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
+    matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
 
-        matches_sans_montant = filtre_nouveaux(
-            df_rev_clean.merge(
-                df_bo_clean,
-                left_on=["Date", "Libelle_match"],
-                right_on=["Date", "Libelle"],
-                how="inner",
-                suffixes=("_rev", "_bo")
-            ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-        )
-        maj_sets(matches_sans_montant)
+    if "ko_rev_final" not in st.session_state:
+        st.session_state["ko_rev_final"] = matches_ko_rev_initial
+    if "ko_bo_final" not in st.session_state:
+        st.session_state["ko_bo_final"] = matches_ko_bo_initial
 
-        m_pot = (
-            df_rev_clean.merge(
-                df_bo_clean,
-                left_on=["Libelle_match"],
-                right_on=["Libelle"],
-                how="inner",
-                suffixes=("_rev", "_bo")
-            )
-            .drop_duplicates(subset=["idx_rev", "idx_bo"])
-        )
-        m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
-        matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
-        maj_sets(matches_potentiel)
+    if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
+        st.session_state["ko_rev_final"] = matches_ko_rev_initial
+        st.session_state["ko_bo_final"] = matches_ko_bo_initial
 
-        # KO initiaux
-        matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
-        matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
+    # KPIs + tabs (tu peux garder ton code existant ici)
+    col1, col2, col3, col4 = st.columns(4)
+    total_rev = len(df_rev_clean)
+    total_matched = len(used_rev)
+    percent = round((total_matched / total_rev) * 100, 1) if total_rev > 0 else 0
 
-        if "ko_rev_final" not in st.session_state:
-            st.session_state["ko_rev_final"] = matches_ko_rev_initial
-        if "ko_bo_final" not in st.session_state:
-            st.session_state["ko_bo_final"] = matches_ko_bo_initial
+    col1.metric("Total Transactions", total_rev)
+    col2.metric("Matchées (Init)", total_matched, f"{percent}%")
+    col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
+    col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
 
-        if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
-            st.session_state["ko_rev_final"] = matches_ko_rev_initial
-            st.session_state["ko_bo_final"] = matches_ko_bo_initial
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "✅ Matches & Validation",
+        "⚠️ KO Revolut (À traiter)",
+        "⚠️ KO BackOffice",
+        "📤 Relances des dépenses",
+        "📦 Export vers Sage"
+    ])
 
-        # KPIs + tabs (tu peux garder ton code existant ici)
-        col1, col2, col3, col4 = st.columns(4)
-        total_rev = len(df_rev_clean)
-        total_matched = len(used_rev)
-        percent = round((total_matched / total_rev) * 100, 1) if total_rev > 0 else 0
-
-        col1.metric("Total Transactions", total_rev)
-        col2.metric("Matchées (Init)", total_matched, f"{percent}%")
-        col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
-        col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
-
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "✅ Matches & Validation",
-            "⚠️ KO Revolut (À traiter)",
-            "⚠️ KO BackOffice",
-            "📤 Relances des dépenses",
-            "📦 Export vers Sage"
-        ])
-
-    
+ 
 
     # ... et là tu remets ton bloc tab1 / tab2 / tab3 / tab4 tel que tu l'avais
 
