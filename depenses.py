@@ -429,6 +429,11 @@ def run_interface():
         st.session_state["df_bo_raw"] = df_bo_raw
     if "df_rev_raw" not in st.session_state or st.session_state["df_rev_raw"] is None:
         st.session_state["df_rev_raw"] = df_rev_raw
+    if "compte_tiers_logs" not in st.session_state:
+        st.session_state["compte_tiers_logs"] = []
+    if "show_compte_tiers_result" not in st.session_state:
+        st.session_state["show_compte_tiers_result"] = False
+
 
 
     # ============================================================
@@ -443,6 +448,19 @@ def run_interface():
         # On reprend les raw depuis la session (car on va les modifier)
         df_bo_raw = st.session_state["df_bo_raw"]
         df_rev_raw = st.session_state["df_rev_raw"]
+
+                # ✅ Si on doit afficher le résultat des corrections (CRM logs), on bloque l'IA
+        if st.session_state.get("show_compte_tiers_result"):
+            st.success("✅ Comptes tiers corrigés. Vérifie les logs ci-dessous puis continue.")
+            with st.expander("Détails des mises à jour CRM", expanded=True):
+                for line in st.session_state.get("compte_tiers_logs", []):
+                    st.write(line)
+
+            if st.button("➡️ Continuer vers le mapping IA"):
+                st.session_state["show_compte_tiers_result"] = False
+                st.rerun()
+
+            return  # ⛔ stop ici : pas de mapping IA tant que pas 'Continuer'
 
         # On crée un BO clean "préliminaire" (indépendant du mapping IA)
         df_bo_clean_pre = clean_bo_only(df_bo_raw)
@@ -538,16 +556,20 @@ def run_interface():
                                         f"❌ CRM: {invoice_number} → {new_compte} (HTTP {result['status']}) | {result['body']}"
                                     )
 
-                    with st.expander("Détails des mises à jour CRM"):
-                        for line in api_logs:
-                            st.write(line)
 
                     # 3) Sauvegarde + verrouillage + rerun
+                    # 3) Sauvegarde + verrouillage (PAS de rerun automatique)
                     st.session_state["df_bo_raw"] = df_bo_raw
                     st.session_state["compte_tiers_done"] = True
                     st.session_state["ko_cycle"] += 1
-                    st.success("✅ Comptes tiers corrigés. Relance du process…")
-                    st.rerun()
+
+                    # on stocke les logs pour les afficher après
+                    st.session_state["compte_tiers_logs"] = api_logs
+                    st.session_state["show_compte_tiers_result"] = True
+
+                    st.rerun()  # ✅ important : on rerun pour afficher l'écran "logs + continuer"
+
+
 
             # Tant que ce n’est pas corrigé, on bloque la suite (donc pas d’IA)
             return
