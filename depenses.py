@@ -148,8 +148,6 @@ BackOffice labels: {json.dumps(backoffice_labels, ensure_ascii=False)}
 
 
 @st.cache_data(show_spinner=False)
-
-@st.cache_data(show_spinner=False)
 def get_ai_mapping(api_key, rev_labels, bo_labels):
     if not api_key:
         return {}
@@ -168,24 +166,21 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
 
     raw_content = response.choices[0].message.content.strip()
 
-    # Nettoyage des balises Markdown ```json ... ```
-    if "```" in raw_content:
-        # On split par les triple backticks et on cherche la partie qui ressemble à du JSON
+    if raw_content.startswith("```"):
         parts = raw_content.split("```")
-        for part in parts:
-            part = part.strip()
-            if part.startswith("json"):
-                raw_content = part[4:].strip()
-                break
-            elif part.startswith("{"):
-                raw_content = part.strip()
-                break
+        if len(parts) >= 2:
+            raw_content = parts[1]
+
+    raw_content = raw_content.lstrip()
+
+    if raw_content.lower().startswith("json"):
+        raw_content = raw_content.split("\n", 1)[1].lstrip()
 
     try:
         return json.loads(raw_content)
-    except Exception as e:
-        st.error(f"Erreur de lecture JSON de l'IA : {e}")
+    except:
         return {}
+
 
 def clean_dataframes(df_rev, df_bo, match_libelle):
 
