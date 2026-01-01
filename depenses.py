@@ -396,14 +396,16 @@ def run_interface():
     st.markdown("---")
 
     # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
-    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
-    revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
-
-    if "Libelle" in df_bo_raw.columns:
-        backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
+    # 1. Chargement initial uniquement si pas déjà en session
+    if st.session_state.get("df_rev_raw") is None or st.session_state.get("df_bo_raw") is None:
+        df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+        st.session_state["df_rev_raw"] = df_rev_raw
+        st.session_state["df_bo_raw"] = df_bo_raw
     else:
-        st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
-        st.stop()
+        df_rev_raw = st.session_state["df_rev_raw"]
+        df_bo_raw = st.session_state["df_bo_raw"]
+
+
 
     # =========================
     # Gestion du state
@@ -549,6 +551,18 @@ def run_interface():
 
             # Tant que ce n’est pas corrigé, on bloque la suite (donc pas d’IA)
             return
+
+        # Recalcule des labels à partir des RAW en session (après corrections éventuelles)
+        df_rev_raw = st.session_state["df_rev_raw"]
+        df_bo_raw  = st.session_state["df_bo_raw"]
+
+        revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
+
+        if "Libelle" in df_bo_raw.columns:
+            backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
+        else:
+            st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
+            st.stop()
 
 
         with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
