@@ -445,39 +445,74 @@ def run_interface():
     # ============================================================
     # PHASE 1 : MAPPING IA
     # ============================================================
+    # ============================================================
+    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
+    # ============================================================
     if st.session_state["phase"] == "mapping":
-        revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
-        backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
 
-        with st.status("🤖 Analyse IA des libellés...", expanded=True) as status:
+        with st.status("🤖 Analyse IA des libellés en cours...", expanded=True) as status:
+
             if st.session_state["match_libelle"] is None:
+                # Premier passage : on appelle l'IA
                 match_libelle = get_ai_mapping(API_KEY, revolut_labels, backoffice_labels)
                 st.session_state["match_libelle"] = match_libelle
             else:
+                # Rerun : on réutilise le mapping déjà obtenu
                 match_libelle = st.session_state["match_libelle"]
-            status.update(label="Analyse terminée !", state="complete", expanded=False)
 
-        st.subheader("🔍 Vérification du Mapping")
-        df_mapping = pd.DataFrame(list(match_libelle.items()), columns=["Libelle Revolut", "Libelle BO"])
+            status.write(match_libelle)
+            status.update(
+                label="IA terminée - Mapping terminé !",
+                state="complete",
+                expanded=False
+            )
+
+        st.info("🔎 Veuillez vérifier les correspondances proposées par l'IA avant de lancer le calcul.")
+
+        raw_map = st.session_state["match_libelle"]
+        df_mapping = pd.DataFrame(list(raw_map.items()), columns=["Libelle Revolut", "Libelle BO"])
         df_mapping.insert(0, "Valide", True)
         df_mapping = df_mapping[df_mapping["Libelle BO"] != "match non trouvé"]
 
-        edited_map = st.data_editor(df_mapping, use_container_width=True, hide_index=True, key="map_ed")
+        edited_mapping = st.data_editor(
+            df_mapping,
+            column_config={
+                "Valide": st.column_config.CheckboxColumn("Accepter ?", default=True),
+                "Libelle Revolut": st.column_config.TextColumn("Libellé Revolut", disabled=True),
+                "Libelle BO": st.column_config.TextColumn("Libellé BO", disabled=True),
+            },
+            use_container_width=True,
+            hide_index=True,
+            key="mapping_editor"
+        )
 
-        if st.button("🚀 Lancer le rapprochement final"):
-            # Update mapping based on rejections
-            final_map = st.session_state["match_libelle"].copy()
-            for _, row in edited_map.iterrows():
-                if not row["Valide"]:
-                    final_map[row["Libelle Revolut"]] = "match non trouvé"
-            
-            st.session_state["match_libelle"] = final_map
-            # Préparation des DataFrames nettoyés pour le dashboard
-            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, final_map)
+        # Bouton de validation du mapping
+        if st.button("✅ Valider le mapping et Lancer le Rapprochement"):
+
+            # 1. On récupère le mapping actuel (celui retourné par l'IA ou déjà en session)
+            current_map = st.session_state.get("match_libelle", {}) or match_libelle or {}
+
+            # 2. On crée une copie que l'on va mettre à jour
+            updated_map = current_map.copy()
+
+            # 3. Pour chaque ligne décochée, on force "match non trouvé"
+            for index, row in edited_mapping.iterrows():
+                if row["Valide"] is False:
+                    updated_map[row["Libelle Revolut"]] = "match non trouvé"
+
+            # 4. On sauvegarde le mapping corrigé en session
+            st.session_state["match_libelle"] = updated_map
+
+            # 5. On prépare les dataframes clean et on les met en session
+            df_rev_clean, df_bo_clean = clean_dataframes(df_rev_raw, df_bo_raw, updated_map)
             st.session_state["df_rev_clean"] = df_rev_clean
             st.session_state["df_bo_clean"] = df_bo_clean
+
+            # 6. On passe en phase dashboard et on rerun
             st.session_state["phase"] = "dashboard"
             st.rerun()
+
+        # Tant qu'on n'a pas validé le mapping, on ne va pas plus loin
         return
 
     # ============================================================
