@@ -301,7 +301,14 @@ def run_interface():
     df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
 
 
-        # =========================
+# Ici : uploaded_revolut et uploaded_bo sont présents
+    st.success("✅ Fichier BackOffice chargé.")
+    st.markdown("---")
+
+    # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
+    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+    
+    # =========================
     # Vérification des "???" dans la colonne Compte
     # =========================
     if "compte_verified" not in st.session_state:
