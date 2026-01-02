@@ -388,7 +388,7 @@ def run_interface():
         st.session_state["df_bo_clean"] = None
 
     # ============================================================
-    # PHASE 1 : MAPPING IA (affiché tant que phase == "mapping")
+    # PHASE 1 : MAPPING IA (affiché tant que phase == "mappinggg")
     # ============================================================
     if st.session_state["phase"] == "mapping":
 
