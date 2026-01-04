@@ -300,7 +300,7 @@ def run_interface():
 
 
 # Ici : uploaded_revolut et uploaded_bo sont présents
-    st.success("✅ Fichier BackOffice chargé.")
+    st.success("✅ Fichier BackOffice chargéee.")
     st.markdown("---")
 
     # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
