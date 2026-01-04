@@ -298,13 +298,6 @@ def run_interface():
     # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
     df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
 
-
-# Ici : uploaded_revolut et uploaded_bo sont présents
-    st.success("✅ Fichier BackOffice chargéee.")
-    st.markdown("---")
-
-    # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
-    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
     
     # =========================
     # Vérification des "???" dans la colonne Compte
@@ -328,6 +321,8 @@ def run_interface():
                 
                 # Créer un index pour suivre les lignes originales
                 df_compte_missing = df_compte_missing.reset_index()
+
+                df_compte_missing = df_compte_missing.drop_duplicates(subset="Libelle").copy()
                 
                 # Colonnes à afficher pour la correction
                 cols_to_display = ["Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte"]
