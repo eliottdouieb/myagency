@@ -360,6 +360,10 @@ def run_interface():
         else:
             st.info("🔒 Comptes validés — affichage en lecture seule")
 
+                # ✅ AJOUT ICI : bloque tant que pas validé
+        if len(df_compte_missing) > 0 and not st.session_state["compte_verified"]:
+            st.stop()
+
         # Si pas de "???" ou colonne Compte inexistante, passer directement
         st.session_state["compte_verified"] = True
     
