@@ -354,6 +354,7 @@ def run_interface():
                     # Sauvegarder le dataframe corrigé
                     st.session_state["df_bo_raw"] = df_bo_raw
                     st.session_state["compte_verified"] = True
+                    st.dataframe(df_bo_raw)
                     st.success("✅ Corrections enregistrées ! Lancement de l'analyse...")
                     st.rerun()
                 
