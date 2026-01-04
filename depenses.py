@@ -323,7 +323,7 @@ def run_interface():
             df_compte_missing = df_bo_raw[df_bo_raw["Compte"] == "???"].copy()
             
             if len(df_compte_missing) > 0:
-                st.warning(f"⚠️ {len(df_compte_missing)} ligne(s) du fichier BackOffice contiennent '???' dans la colonne Compte.")
+                st.warning(f"⚠️ {len(df_compte_missing)} ligne(s) du fichier BackOffice contiennent '???' dans la colonne Compteeeee.")
                 st.info("📝 Veuillez corriger ces valeurs avant de continuer vers le mapping IA.")
                 
                 # Créer un index pour suivre les lignes originales
