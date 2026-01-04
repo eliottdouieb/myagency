@@ -333,7 +333,7 @@ def run_interface():
                 cols_to_display = ["Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte"]
                 cols_available = [c for c in cols_to_display if c in df_compte_missing.columns]
                 
-                # Afficher le tableau éditable
+                # Afficher le tableau éditableee
                 edited_compte = st.data_editor(
                     df_compte_missing[["index"] + cols_available],
                     column_config={
