@@ -370,7 +370,7 @@ def run_interface():
     st.success("✅ Vérification Compte OK. Lancement de l'analyse...")
     st.markdown("---")
 
-
+    st.dataframe(st.session_state["df_bo_raw"])
     revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
 
     if "Libelle" in df_bo_raw.columns:
