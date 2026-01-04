@@ -354,7 +354,7 @@ def run_interface():
                     if row['Compte'] != "???":
                         idx = df_bo_raw[
                             (df_bo_raw["Libelle"] == row["Libelle"]) 
-                            & (not str(row['Compte']).startswith("511"))  
+                            & (not (row['Compte']).startswith(511))  
                         ].index
                         if not idx.empty:
                             df_bo_raw.loc[idx, ["Compte"]] = row[["Compte"]].values
