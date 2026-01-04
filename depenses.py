@@ -251,9 +251,7 @@ def display_interactive_table(df, key_suffix):
     return edited_df
 
 
-# ============================================================
-# 3. Logique Principale
-# ============================================================
+
 
 # ============================================================
 # 3. Logique Principale
@@ -340,7 +338,7 @@ def run_interface():
                     df_compte_missing[["index"] + cols_available],
                     column_config={
                         "index": None,  # Caché mais conservé pour le mapping
-                        "Date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                        "Date": st.column_config.TextColumn("Date", disabled=True),
                         "Libelle": st.column_config.TextColumn("Libellé", disabled=True),
                         "Débit(€)": st.column_config.NumberColumn("Débit (€)", format="%.2f €", disabled=True),
                         "Crédit (€)": st.column_config.NumberColumn("Crédit (€)", format="%.2f €", disabled=True),
