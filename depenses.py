@@ -350,7 +350,14 @@ def run_interface():
         if not st.session_state["compte_verified"]:
             if st.button("✅ Continuer vers le mapping IA"):
                 for _, row in edited_compte.iterrows():
-                    df_bo_raw.loc[row["index"], "Compte"] = row["Compte"]
+                    # df_bo_raw.loc[row["index"], "Compte"] = row["Compte"]
+                    if row['Compte'] != "???":
+                        idx = df_bo_raw[
+                            (df_bo_raw["Libelle"] == row["Libelle"]) 
+                        ].index
+                        if not idx.empty:
+                            df_bo_raw.loc[idx, ["Compte"]] = row[["Compte"]].values
+
 
                 st.session_state["df_bo_raw"] = df_bo_raw
                 st.session_state["compte_verified"] = True
