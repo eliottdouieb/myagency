@@ -302,65 +302,64 @@ def run_interface():
     # =========================
     # Vérification des "???" dans la colonne Compte
     # =========================
+
+    df_compte_missing = pd.DataFrame()
+
+    if "Compte" in df_bo_raw.columns:
+        df_compte_missing = df_bo_raw[df_bo_raw["Compte"] == "???"].copy()
+        df_compte_missing = df_compte_missing.reset_index()
+        df_compte_missing = df_compte_missing.drop_duplicates(subset="Libelle").copy()
+
+
+    # =========================
+    # Vérification & correction des comptes (affichage persistant)
+    # =========================
     if "compte_verified" not in st.session_state:
         st.session_state["compte_verified"] = False
-    
+
     if "df_bo_raw" not in st.session_state:
         st.session_state["df_bo_raw"] = df_bo_raw
     else:
         df_bo_raw = st.session_state["df_bo_raw"]
-    
-    # Vérifier s'il y a des "???" dans la colonne Compte
-    if not st.session_state["compte_verified"]:
-        if "Compte" in df_bo_raw.columns:
-            df_compte_missing = df_bo_raw[df_bo_raw["Compte"] == "???"].copy()
-            
-            if len(df_compte_missing) > 0:
-                st.warning(f"⚠️ {len(df_compte_missing)} ligne(s) du fichier BackOffice contiennent '???' dans la colonne Compteeeee.")
-                st.info("📝 Veuillez corriger ces valeurs avant de continuer vers le mapping IA.")
-                
-                # Créer un index pour suivre les lignes originales
-                df_compte_missing = df_compte_missing.reset_index()
 
-                df_compte_missing = df_compte_missing.drop_duplicates(subset="Libelle").copy()
-                
-                # Colonnes à afficher pour la correction
-                cols_to_display = ["Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte"]
-                cols_available = [c for c in cols_to_display if c in df_compte_missing.columns]
-                
-                # Afficher le tableau éditableee
-                edited_compte = st.data_editor(
-                    df_compte_missing[["index"] + cols_available],
-                    column_config={
-                        "index": None,  # Caché mais conservé pour le mapping
-                        "Date": st.column_config.TextColumn("Date", disabled=True),
-                        "Libelle": st.column_config.TextColumn("Libellé", disabled=True),
-                        "Débit(€)": st.column_config.NumberColumn("Débit (€)", format="%.2f €", disabled=True),
-                        "Crédit (€)": st.column_config.NumberColumn("Crédit (€)", format="%.2f €", disabled=True),
-                        "Compte": st.column_config.TextColumn("Compte", help="Modifiez '???' par le compte correct")
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                    key="compte_editor"
+    if len(df_compte_missing) > 0:
+
+        st.subheader("🧾 Correction des comptes BackOffice")
+
+        disabled_mode = st.session_state["compte_verified"]
+
+        edited_compte = st.data_editor(
+            df_compte_missing[["index", "Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte"]],
+            column_config={
+                "index": None,
+                "Date": st.column_config.TextColumn("Date", disabled=True),
+                "Libelle": st.column_config.TextColumn("Libellé", disabled=True),
+                "Débit(€)": st.column_config.NumberColumn("Débit (€)", format="%.2f €", disabled=True),
+                "Crédit (€)": st.column_config.NumberColumn("Crédit (€)", format="%.2f €", disabled=True),
+                "Compte": st.column_config.TextColumn(
+                    "Compte",
+                    disabled=disabled_mode,
+                    help="Compte comptable BackOffice"
                 )
-                
-                if st.button("✅ Continuer vers le mapping IA"):
-                    # Mettre à jour le dataframe principal avec les corrections
-                    for _, row in edited_compte.iterrows():
-                        original_index = row["index"]
-                        new_compte = row["Compte"]
-                        df_bo_raw.loc[original_index, "Compte"] = new_compte
-                    
-                    # Sauvegarder le dataframe corrigé
-                    st.session_state["df_bo_raw"] = df_bo_raw
-                    st.session_state["compte_verified"] = True
-                    st.dataframe(df_bo_raw)
-                    st.success("✅ Corrections enregistrées ! Lancement de l'analyse...")
-                    st.rerun()
-                
-                # Arrêter l'exécution ici tant que l'utilisateur n'a pas validé
-                return
-        
+            },
+            use_container_width=True,
+            hide_index=True,
+            key="compte_editor"
+        )
+
+        if not st.session_state["compte_verified"]:
+            if st.button("✅ Continuer vers le mapping IA"):
+                for _, row in edited_compte.iterrows():
+                    df_bo_raw.loc[row["index"], "Compte"] = row["Compte"]
+
+                st.session_state["df_bo_raw"] = df_bo_raw
+                st.session_state["compte_verified"] = True
+                st.success("✅ Vérification Compte OK. Lancement de l'analyse...")
+                st.rerun()
+
+        else:
+            st.info("🔒 Comptes validés — affichage en lecture seule")
+
         # Si pas de "???" ou colonne Compte inexistante, passer directement
         st.session_state["compte_verified"] = True
     
