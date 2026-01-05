@@ -406,6 +406,9 @@ def run_interface():
     if "compte_verified" not in st.session_state:
         st.session_state["compte_verified"] = False
 
+    if "api_row" not in st.session_state:
+        st.session_state["api_row"] = False
+
     if "df_bo_raw" not in st.session_state:
         st.session_state["df_bo_raw"] = df_bo_raw
     else:
@@ -437,9 +440,9 @@ def run_interface():
             key="compte_editor"
         )
 
-        if st.session_state["api_row"] == 'succes':
+        if st.session_state["api_row"] == api_logs:
             with st.expander("Détails des mises à jour CRM"):
-                    for line in api_logs:
+                    for line in st.session_state["api_row"]:
                         st.write(line)
 
         if not st.session_state["compte_verified"]:
@@ -478,7 +481,7 @@ def run_interface():
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
 
-                st.session_state["api_row"] = 'succes'
+                st.session_state["api_row"] = api_logs
                 
 
 
