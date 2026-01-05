@@ -145,7 +145,7 @@ BackOffice labels: {json.dumps(backoffice_labels, ensure_ascii=False)}
 """
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_data(show_spinner=False)
 def get_ai_mapping(api_key, rev_labels, bo_labels):
     if not api_key:
         return {}
@@ -333,7 +333,7 @@ def run_api_crm(num_de_piece,value,date):
             "message": "Erreur de traitement ou JSON invalide",
             "success": False,
         }
-@st.cache_data(show_spinner=False, ttl=1800)
+# @st.cache_data(show_spinner=False, ttl=1800)
 
 
 # ============================================================
