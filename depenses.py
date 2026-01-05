@@ -472,10 +472,11 @@ def run_interface():
                             else:
                                 api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
 
-                with st.expander("Détails des mises à jour CRM"):
-                    for line in api_logs:
-                        st.write(line)
+                # with st.expander("Détails des mises à jour CRM"):
+                #     for line in api_logs:
+                #         st.write(line)
 
+                st.session_state["api_logs"] = api_logs
 
 
 
@@ -485,6 +486,12 @@ def run_interface():
                 st.rerun()
 
         else:
+            
+            api_logs = st.session_state["api_logs"]
+            with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
+
             st.info("🔒 Comptes validés — affichage en lecture seule")
 
                 # ✅ AJOUT ICI : bloque tant que pas validé
