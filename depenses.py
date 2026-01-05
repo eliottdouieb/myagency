@@ -270,6 +270,72 @@ def _to_iso_date(v) -> str | None:
         except Exception:
             return None
 
+def run_api_crm(num_de_piece,value,date):
+    BASE_URL = st.secrets["crm"]["base_url"]
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD =st.secrets["crm"]["password"]
+    if not PASSWORD:
+        raise RuntimeError("Missing CRM_PASSWORD. …")
+        
+    auth_payload = {"email": EMAIL, "password": PASSWORD}
+    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_ct = (auth_resp.headers.get("content-type") or "").lower()
+    auth_data = auth_resp.json() if "application/json" in auth_ct else {}
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+        
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+        
+
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": num_de_piece,
+            "type": "partner",
+            "field": "achat",
+            "value": value,
+            "date":date
+        }
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        ctype = (resp.headers.get("content-type") or "").lower()
+        json_body = resp.json() if "application/json" in ctype else {}
+
+        return {
+            "status": resp.status_code,
+            "type": "Réponse JSON",
+            "body": json_body,
+            "message": json_body.get("message", "Aucun message"),
+            "success": json_body.get("success", False),
+        }
+
+    except Exception as e:
+        return {
+            "status": resp.status_code if 'resp' in locals() else 500,
+            "type": "Réponse brute ou erreur",
+            "body": resp.text if 'resp' in locals() else str(e),
+            "message": "Erreur de traitement ou JSON invalide",
+            "success": False,
+        }
+@st.cache_data(show_spinner=False, ttl=1800)
+
+
 # ============================================================
 # 3. Logique Principale
 # ============================================================
@@ -346,7 +412,7 @@ def run_interface():
         disabled_mode = st.session_state["compte_verified"]
 
         edited_compte = st.data_editor(
-            df_compte_missing[["index", "Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte"]],
+            df_compte_missing[["index", "Date", "Libelle", "Débit(€)", "Crédit (€)", "Compte","NumCompta"]],
             column_config={
                 "index": None,
                 "Date": st.column_config.TextColumn("Date", disabled=True),
@@ -366,8 +432,8 @@ def run_interface():
 
         if not st.session_state["compte_verified"]:
             if st.button("✅ Continuer vers le mapping IA"):
+                api_logs = []
                 for _, row in edited_compte.iterrows():
-
                     if str(row["Compte"]) != "???":
                         idx = df_bo_raw[
                             (df_bo_raw["Libelle"] == row["Libelle"]) &
