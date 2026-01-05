@@ -251,7 +251,24 @@ def display_interactive_table(df, key_suffix):
     return edited_df
 
 
-
+def _to_iso_date(v) -> str | None:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    if isinstance(v, (datetime, date, pd.Timestamp)):
+        return pd.to_datetime(v).strftime("%Y-%m-%d")
+    s = str(v).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    try:
+        return pd.to_datetime(s, dayfirst=True, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        try:
+            return pd.to_datetime(float(s), unit="D", origin="1899-12-30").strftime("%Y-%m-%d")
+        except Exception:
+            return None
 
 # ============================================================
 # 3. Logique Principale
@@ -359,6 +376,33 @@ def run_interface():
 
                         if not idx.empty:
                             df_bo_raw.loc[idx, "Compte"] = row["Compte"]
+
+                        with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                            invoice_number = str(row["NumCompta"]).strip()
+                            compte_value = str(row["Compte"]).strip()
+                            date = _to_iso_date(str(row["Date"]).strip())
+                                
+                            # skip si facture vide
+                            if not invoice_number:
+                                api_logs.append(f"⚠️ Facture sans numéro de piece — ligne ignorée.")
+                                continue
+
+                            result = run_api_crm(invoice_number, compte_value, date)
+                            if result["status"] and 200 <= result["status"]  < 300:
+                                if result["success"]==False:
+                                    if result["message"]=="Line not updated, same value":
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Compte Tiers identique sur CRM donc pas de mise a jour")
+                                    else :
+                                        api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | Numero de piece non existant")
+                                else:
+                                    api_logs.append(f"✅ CRM ok — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] },hey {result['success']},{result['message']})")
+                            else:
+                                api_logs.append(f"❌ CRM ko — numéro de piece {invoice_number} → {compte_value} (HTTP {result['status'] }) | {result['body'] }")
+
+                with st.expander("Détails des mises à jour CRM"):
+                    for line in api_logs:
+                        st.write(line)
+
 
 
 
