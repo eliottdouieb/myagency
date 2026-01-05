@@ -7,7 +7,8 @@ from xlsx2csv import Xlsx2csv
 from openai import OpenAI
 import gspread
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, date
+
 
 
 # ============================================================
