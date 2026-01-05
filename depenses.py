@@ -423,7 +423,8 @@ def run_interface():
                     "Compte",
                     disabled=disabled_mode,
                     help="Compte comptable BackOffice"
-                )
+                ),
+                "NumCompta": st.column_config.TextColumn("NumCompta", disabled=True),
             },
             use_container_width=True,
             hide_index=True,
