@@ -482,12 +482,7 @@ def run_interface():
 
 
                 st.session_state["api_row"] = api_logs
-                
-
-
-
-
-
+            
                 st.session_state["df_bo_raw"] = df_bo_raw
                 st.session_state["compte_verified"] = True
                 st.success("✅ Vérification Compte OK. Lancement de l'analyse...")
@@ -506,7 +501,7 @@ def run_interface():
     st.success("✅ Vérification Compte OK. Lancement de l'analyse...")
     st.markdown("---")
 
-    st.dataframe(st.session_state["df_bo_raw"])
+    # st.dataframe(st.session_state["df_bo_raw"])
     revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
 
     if "Libelle" in df_bo_raw.columns:
@@ -633,6 +628,7 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         )
+        .query("Invoice == 'yes'")
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
     maj_sets(matches_ok)
@@ -752,7 +748,7 @@ def run_interface():
             "idx_rev", "idx_bo", "Date", "Montant",
             "Description", "Libelle", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte"
+            "email","email_binome","Compte","Invoice"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
