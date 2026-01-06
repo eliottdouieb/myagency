@@ -619,8 +619,23 @@ def run_interface():
         used_rev.update(df["idx_rev"].dropna().unique())
         used_bo.update(df["idx_bo"].dropna().unique())
 
+    def split_invoice(df):
+        # Si la colonne n'existe pas, on considère que tout est "sans facture"
+        if "Invoice" not in df.columns:
+            return df.iloc[0:0].copy(), df.copy()
+
+        s = df["Invoice"].astype(str).str.strip().str.lower()
+        df_yes = df[s == "yes"].copy()
+        df_no  = df[s != "yes"].copy()
+        return df_yes, df_no
+
+    def add_used(df):
+        # Alias clair pour "ces lignes sont matchées", donc pas des KO "dépense manquante"
+        maj_sets(df)
+
+
     # -- Algorithmes --
-    matches_ok = (
+    matches_ok_all = (
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Montant", "Libelle_match"],
@@ -628,12 +643,18 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         )
-        .query("Invoice == 'yes'")
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    maj_sets(matches_ok)
 
-    matches_sans_libelle = filtre_nouveaux(
+    # IMPORTANT : on marque TOUT comme utilisé (avec ou sans facture)
+    add_used(matches_ok_all)
+
+    # Ensuite on split pour l'UX
+    matches_ok, matches_ok_no_invoice = split_invoice(matches_ok_all)
+
+    # maj_sets(matches_ok)
+
+    matches_sans_libelle_all = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Montant"],
@@ -642,9 +663,14 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    maj_sets(matches_sans_libelle)
 
-    m_sans_conversion = (
+    add_used(matches_sans_libelle_all)
+
+    matches_sans_libelle, matches_sans_libelle_no_invoice = split_invoice(matches_sans_libelle_all)
+
+    # maj_sets(matches_sans_libelle)
+
+    m_sans_conversion_all = (
     df_rev_clean.merge(
         df_bo_clean,
         left_on=["Libelle_match"],
@@ -654,14 +680,18 @@ def run_interface():
     )
     .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
-    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
+    m_sans_conversion_all["ecart_jours"] = (m_sans_conversion_all["Date_bo"] - m_sans_conversion_all["Date_rev"]).dt.days.abs()
+    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion_all[m_sans_conversion_all["ecart_jours"] <= 3])
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
     
-    maj_sets(matches_potentiel_sans_conversion)
+    add_used(matches_potentiel_sans_conversion)
 
-    matches_sans_date = filtre_nouveaux(
+    matches_potentiel_sans_conversion, matches_potentiel_sans_conversion_no_invoice = split_invoice(matches_potentiel_sans_conversion)
+
+    # maj_sets(matches_potentiel_sans_conversion)
+
+    matches_sans_date_all = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Montant", "Libelle_match"],
@@ -670,9 +700,13 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    maj_sets(matches_sans_date)
 
-    matches_sans_montant = filtre_nouveaux(
+    add_used(matches_sans_date_all)
+
+    matches_sans_date, matches_sans_date_no_invoice = split_invoice(matches_sans_date_all)
+    # maj_sets(matches_sans_date)
+
+    matches_sans_montant_all = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Libelle_match"],
@@ -681,9 +715,13 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    maj_sets(matches_sans_montant)
 
-    m_pot = (
+    add_used(matches_sans_montant_all)
+
+    matches_sans_montant, matches_sans_montant_no_invoice = split_invoice(matches_sans_montant_all)
+    # maj_sets(matches_sans_montant)
+
+    m_pot_all = (
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Libelle_match"],
@@ -693,9 +731,28 @@ def run_interface():
         )
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
-    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
-    maj_sets(matches_potentiel)
+    m_pot_all["ecart_jours"] = (m_pot_all["Date_bo"] - m_pot_all["Date_rev"]).dt.days.abs()
+    matches_potentiel = filtre_nouveaux(m_pot_all[m_pot_all["ecart_jours"] <= 3])
+
+    add_used(matches_potentiel)
+
+    matches_potentiel, matches_potentiel_no_invoice = split_invoice(matches_potentiel)
+
+
+    # maj_sets(matches_potentiel)
+
+    df_factures_manquantes = pd.concat(
+    [
+        matches_ok_no_invoice,
+        matches_sans_libelle_no_invoice,
+        matches_sans_date_no_invoice,
+        matches_sans_montant_no_invoice,
+        matches_potentiel_sans_conversion_no_invoice,
+        matches_potentiel_no_invoice,
+    ],
+    ignore_index=True
+    ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+
 
     # KO initiaux
     matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
@@ -721,13 +778,15 @@ def run_interface():
     col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
     col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "✅ Matches & Validation",
-        "⚠️ KO Revolut (À traiter)",
-        "⚠️ KO BackOffice",
-        "📤 Relances des dépenses",
-        "📦 Export vers Sage"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "✅ Matches & Validation",
+    "⚠️ KO Revolut (À traiter)",
+    "⚠️ KO BackOffice",
+    "🧾 Factures à ajouter",
+    "📤 Relances des dépenses",
+    "📦 Export vers Sage"
     ])
+
 
  
 
@@ -746,9 +805,9 @@ def run_interface():
         # Colonnes de base
         base_cols = [
             "idx_rev", "idx_bo", "Date", "Montant",
-            "Description", "Libelle", "Payer",
+            "Description", "Libelle","Invoice", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte","Invoice"
+            "email","email_binome","Compte"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
@@ -790,7 +849,7 @@ def run_interface():
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle", "Payer",
+                "Montant", "Description", "Libelle","Invoice", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -926,6 +985,27 @@ def run_interface():
         st.dataframe(st.session_state["ko_bo_final"])
 
     with tab4:
+        st.header("🧾 Factures à ajouter (dépense présente dans le BO)")
+
+        st.warning(
+            "Ces dépenses sont bien matchées avec le BackOffice (donc ce n’est pas un KO 'dépense manquante'), "
+            "mais la colonne **Invoice** n’est pas à **yes**.\n\n"
+            "👉 Action : **ajouter / rattacher la facture (pièce)** dans le BackOffice."
+        )
+
+        st.dataframe(df_factures_manquantes, use_container_width=True)
+
+        # Optionnel : export CSV
+        csv_factures = df_factures_manquantes.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Télécharger CSV — Factures à ajouter",
+            data=csv_factures,
+            file_name="factures_a_ajouter.csv",
+            mime="text/csv"
+        )
+
+
+    with tab5:
         st.header("📤 Relances des dépenses incomplètes (Export vers Google Sheets)")
 
         # Explication avant le boutonnnnn
