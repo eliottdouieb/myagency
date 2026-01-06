@@ -784,9 +784,9 @@ def run_interface():
         # Colonnes de base
         base_cols = [
             "idx_rev", "idx_bo", "Date", "Montant",
-            "Description", "Libelle", "Payer",
+            "Description", "Libelle","Invoice", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte","Invoice"
+            "email","email_binome","Compte"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
@@ -828,7 +828,7 @@ def run_interface():
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle", "Payer",
+                "Montant", "Description", "Libelle","Invoice", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -848,7 +848,7 @@ def run_interface():
             cols_pots_sans_conversion = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo", "Description", "Libelle", "Payer",
+                "Montant_rev", "Montant_bo", "Description", "Libelle","Invoice", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -871,7 +871,7 @@ def run_interface():
             cols_sm = [
                 "idx_rev", "idx_bo",
                 "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer",
+                "Description", "Libelle","Invoice", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -892,7 +892,7 @@ def run_interface():
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle", "Payer",
+                "Description", "Libelle","Invoice", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
