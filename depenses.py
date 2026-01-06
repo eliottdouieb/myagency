@@ -1058,23 +1058,58 @@ def run_interface():
                     except:
                         ws = sh.get_worksheet(0)
 
-                    df_export = st.session_state["ko_rev_final"].copy()
+                    # =========================
+                    # Export KO + OK sans facture (même onglet)
+                    # =========================
+                    df_ko = st.session_state.get("ko_rev_final", pd.DataFrame()).copy()
+                    df_noinv = st.session_state.get("no_invoice_final", pd.DataFrame()).copy()
+
+                    # Ajout colonne Type
+                    if df_ko is not None and len(df_ko) > 0:
+                        df_ko["Type"] = "KO dépense"
+                    if df_noinv is not None and len(df_noinv) > 0:
+                        df_noinv["Type"] = "OK sans facture"
+
+                    # Colonnes export (tu peux en rajouter si besoin)
                     cols_export = [
+                        "Type",
                         "Date", "Description", "Montant",
                         "ID", "Payer", "Exchange rate",
-                        "Orig currency", "Orig amount", "email","email_binome"
+                        "Orig currency", "Orig amount",
+                        "email", "email_binome",
+                        "Invoice"
                     ]
-                    cols_final = [c for c in cols_export if c in df_export.columns]
-                    df_export = df_export[cols_final]
 
-                    if "Date" in df_export.columns:
-                        df_export["Date"] = df_export["Date"].dt.strftime("%Y-%m-%d")
+                    # Harmoniser colonnes (crée les colonnes manquantes)
+                    def _ensure_cols(df, cols):
+                        if df is None or df.empty:
+                            return df
+                        for c in cols:
+                            if c not in df.columns:
+                                df[c] = ""
+                        return df[cols]
+
+                    df_ko_final = _ensure_cols(df_ko, cols_export)
+                    df_noinv_final = _ensure_cols(df_noinv, cols_export)
+
+                    # Concat final
+                    frames = [d for d in [df_ko_final, df_noinv_final] if d is not None and len(d) > 0]
+                    df_export = pd.concat(frames, ignore_index=True) if len(frames) > 0 else pd.DataFrame(columns=cols_export)
+
+                    # Format date si possible
+                    if "Date" in df_export.columns and len(df_export) > 0:
+                        try:
+                            df_export["Date"] = pd.to_datetime(df_export["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                        except:
+                            pass
 
                     df_export = df_export.fillna("")
 
-                    # ws.append_rows(df_export.values.tolist())ggg
+                    # Export vers sheet
                     ws.insert_rows(df_export.values.tolist(), row=2)
-                    st.success(f"✅ {len(df_export)} lignes exportées avec succès !")
+
+                    st.success(f"✅ {len(df_export)} lignes exportées avec succès (KO + OK sans facture).")
+
 
                 except Exception as e:
                     st.error(f"Erreur export : {e}")
