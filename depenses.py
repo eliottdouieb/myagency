@@ -619,6 +619,16 @@ def run_interface():
         used_rev.update(df["idx_rev"].dropna().unique())
         used_bo.update(df["idx_bo"].dropna().unique())
 
+    # ✅ INSERTION ICI (juste après maj_sets)
+    if "no_invoice_final" not in st.session_state:
+        st.session_state["no_invoice_final"] = pd.DataFrame()
+
+    if "no_invoice_ids_rev" not in st.session_state:
+        st.session_state["no_invoice_ids_rev"] = set()
+
+    if "no_invoice_ids_bo" not in st.session_state:
+        st.session_state["no_invoice_ids_bo"] = set()
+
     # -- Algorithmes --
     matches_ok = (
         df_rev_clean.merge(
@@ -719,26 +729,15 @@ def run_interface():
         matches_sans_montant = _rm_noinv(matches_sans_montant)
         matches_potentiel = _rm_noinv(matches_potentiel)
 
-
-
-        # KO initiaux
-        matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
+    # ✅ KO initiaux (DOIT ÊTRE TOUJOURS DÉFINI, DONC HORS DU IF)
+    matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
     matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
+
 
     if "ko_rev_final" not in st.session_state:
         st.session_state["ko_rev_final"] = matches_ko_rev_initial
     if "ko_bo_final" not in st.session_state:
         st.session_state["ko_bo_final"] = matches_ko_bo_initial
-
-    if "no_invoice_final" not in st.session_state:
-        st.session_state["no_invoice_final"] = pd.DataFrame()   
-
-    if "no_invoice_ids_rev" not in st.session_state:
-        st.session_state["no_invoice_ids_rev"] = set()
-
-    if "no_invoice_ids_bo" not in st.session_state:
-        st.session_state["no_invoice_ids_bo"] = set()
-
 
     if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
         st.session_state["ko_rev_final"] = matches_ko_rev_initial
