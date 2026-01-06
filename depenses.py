@@ -619,23 +619,8 @@ def run_interface():
         used_rev.update(df["idx_rev"].dropna().unique())
         used_bo.update(df["idx_bo"].dropna().unique())
 
-    def split_invoice(df):
-        # Si la colonne n'existe pas, on considère que tout est "sans facture"
-        if "Invoice" not in df.columns:
-            return df.iloc[0:0].copy(), df.copy()
-
-        s = df["Invoice"].astype(str).str.strip().str.lower()
-        df_yes = df[s == "yes"].copy()
-        df_no  = df[s != "yes"].copy()
-        return df_yes, df_no
-
-    def add_used(df):
-        # Alias clair pour "ces lignes sont matchées", donc pas des KO "dépense manquante"
-        maj_sets(df)
-
-
     # -- Algorithmes --
-    matches_ok_all = (
+    matches_ok = (
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Montant", "Libelle_match"],
@@ -643,18 +628,12 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         )
+        .query("Invoice == 'yes'")
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
+    maj_sets(matches_ok)
 
-    # IMPORTANT : on marque TOUT comme utilisé (avec ou sans facture)
-    add_used(matches_ok_all)
-
-    # Ensuite on split pour l'UX
-    matches_ok, matches_ok_no_invoice = split_invoice(matches_ok_all)
-
-    # maj_sets(matches_ok)
-
-    matches_sans_libelle_all = filtre_nouveaux(
+    matches_sans_libelle = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Montant"],
@@ -663,14 +642,9 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
+    maj_sets(matches_sans_libelle)
 
-    add_used(matches_sans_libelle_all)
-
-    matches_sans_libelle, matches_sans_libelle_no_invoice = split_invoice(matches_sans_libelle_all)
-
-    # maj_sets(matches_sans_libelle)
-
-    m_sans_conversion_all = (
+    m_sans_conversion = (
     df_rev_clean.merge(
         df_bo_clean,
         left_on=["Libelle_match"],
@@ -680,18 +654,14 @@ def run_interface():
     )
     .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    m_sans_conversion_all["ecart_jours"] = (m_sans_conversion_all["Date_bo"] - m_sans_conversion_all["Date_rev"]).dt.days.abs()
-    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion_all[m_sans_conversion_all["ecart_jours"] <= 3])
+    m_sans_conversion["ecart_jours"] = (m_sans_conversion["Date_bo"] - m_sans_conversion["Date_rev"]).dt.days.abs()
+    matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
     
-    add_used(matches_potentiel_sans_conversion)
+    maj_sets(matches_potentiel_sans_conversion)
 
-    matches_potentiel_sans_conversion, matches_potentiel_sans_conversion_no_invoice = split_invoice(matches_potentiel_sans_conversion)
-
-    # maj_sets(matches_potentiel_sans_conversion)
-
-    matches_sans_date_all = filtre_nouveaux(
+    matches_sans_date = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Montant", "Libelle_match"],
@@ -700,13 +670,9 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
+    maj_sets(matches_sans_date)
 
-    add_used(matches_sans_date_all)
-
-    matches_sans_date, matches_sans_date_no_invoice = split_invoice(matches_sans_date_all)
-    # maj_sets(matches_sans_date)
-
-    matches_sans_montant_all = filtre_nouveaux(
+    matches_sans_montant = filtre_nouveaux(
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Date", "Libelle_match"],
@@ -715,13 +681,9 @@ def run_interface():
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
+    maj_sets(matches_sans_montant)
 
-    add_used(matches_sans_montant_all)
-
-    matches_sans_montant, matches_sans_montant_no_invoice = split_invoice(matches_sans_montant_all)
-    # maj_sets(matches_sans_montant)
-
-    m_pot_all = (
+    m_pot = (
         df_rev_clean.merge(
             df_bo_clean,
             left_on=["Libelle_match"],
@@ -731,31 +693,36 @@ def run_interface():
         )
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
-    m_pot_all["ecart_jours"] = (m_pot_all["Date_bo"] - m_pot_all["Date_rev"]).dt.days.abs()
-    matches_potentiel = filtre_nouveaux(m_pot_all[m_pot_all["ecart_jours"] <= 3])
-
-    add_used(matches_potentiel)
-
-    matches_potentiel, matches_potentiel_no_invoice = split_invoice(matches_potentiel)
+    m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
+    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
+    maj_sets(matches_potentiel)
 
 
-    # maj_sets(matches_potentiel)
+    # Enlève des matches les lignes déjà classées "OK sans facture"
+    if st.session_state.get("no_invoice_ids_rev") or st.session_state.get("no_invoice_ids_bo"):
+        bad_rev = st.session_state.get("no_invoice_ids_rev", set())
+        bad_bo  = st.session_state.get("no_invoice_ids_bo", set())
 
-    df_factures_manquantes = pd.concat(
-    [
-        matches_ok_no_invoice,
-        matches_sans_libelle_no_invoice,
-        matches_sans_date_no_invoice,
-        matches_sans_montant_no_invoice,
-        matches_potentiel_sans_conversion_no_invoice,
-        matches_potentiel_no_invoice,
-    ],
-    ignore_index=True
-    ).drop_duplicates(subset=["idx_rev", "idx_bo"])
+        def _rm_noinv(df):
+            if df is None or df.empty:
+                return df
+            if "idx_rev" in df.columns:
+                df = df[~df["idx_rev"].isin(bad_rev)]
+            if "idx_bo" in df.columns:
+                df = df[~df["idx_bo"].isin(bad_bo)]
+            return df
+
+        matches_ok = _rm_noinv(matches_ok)
+        matches_sans_libelle = _rm_noinv(matches_sans_libelle)
+        matches_sans_date = _rm_noinv(matches_sans_date)
+        matches_potentiel_sans_conversion = _rm_noinv(matches_potentiel_sans_conversion)
+        matches_sans_montant = _rm_noinv(matches_sans_montant)
+        matches_potentiel = _rm_noinv(matches_potentiel)
 
 
-    # KO initiaux
-    matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
+
+        # KO initiaux
+        matches_ko_rev_initial = df_rev_clean[~df_rev_clean["idx_rev"].isin(used_rev)]
     matches_ko_bo_initial = df_bo_clean[~df_bo_clean["idx_bo"].isin(used_bo)]
 
     if "ko_rev_final" not in st.session_state:
@@ -763,12 +730,23 @@ def run_interface():
     if "ko_bo_final" not in st.session_state:
         st.session_state["ko_bo_final"] = matches_ko_bo_initial
 
+    if "no_invoice_final" not in st.session_state:
+        st.session_state["no_invoice_final"] = pd.DataFrame()   
+
+    if "no_invoice_ids_rev" not in st.session_state:
+        st.session_state["no_invoice_ids_rev"] = set()
+
+    if "no_invoice_ids_bo" not in st.session_state:
+        st.session_state["no_invoice_ids_bo"] = set()
+
+
     if len(st.session_state["ko_rev_final"]) == 0 and len(matches_ko_rev_initial) > 0:
         st.session_state["ko_rev_final"] = matches_ko_rev_initial
         st.session_state["ko_bo_final"] = matches_ko_bo_initial
 
     # KPIs + tabs (tu peux garder ton code existant ici)
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
+
     total_rev = len(df_rev_clean)
     total_matched = len(used_rev)
     percent = round((total_matched / total_rev) * 100, 1) if total_rev > 0 else 0
@@ -777,15 +755,17 @@ def run_interface():
     col2.metric("Matchées (Init)", total_matched, f"{percent}%")
     col3.metric("KO Revolut (Actuel)", len(st.session_state["ko_rev_final"]), delta_color="inverse")
     col4.metric("KO BackOffice (Actuel)", len(st.session_state["ko_bo_final"]), delta_color="inverse")
+    col5.metric("OK sans facture", len(st.session_state["no_invoice_final"]))
+
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "✅ Matches & Validation",
     "⚠️ KO Revolut (À traiter)",
     "⚠️ KO BackOffice",
-    "🧾 Factures à ajouter",
+    "🧾 Dépenses OK sans facture",
     "📤 Relances des dépenses",
     "📦 Export vers Sage"
-    ])
+])
 
 
  
@@ -805,9 +785,9 @@ def run_interface():
         # Colonnes de base
         base_cols = [
             "idx_rev", "idx_bo", "Date", "Montant",
-            "Description", "Libelle","Invoice", "Payer",
+            "Description", "Libelle", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte"
+            "email","email_binome","Compte","Invoice"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
@@ -849,7 +829,7 @@ def run_interface():
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle","Invoice", "Payer",
+                "Montant", "Description", "Libelle", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -938,6 +918,16 @@ def run_interface():
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
             all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
 
+            def _is_no_invoice(s):
+                # retourne True si Invoice != "yes" (robuste aux NaN / espaces / casse)
+                s = s.astype(str).str.strip().str.lower()
+                return (s != "yes") & (s != "") & (s != "nan")
+
+            noinv_parts = []
+            noinv_rev_ids = []
+            noinv_bo_ids = []
+
+
             rejected_rev_ids = []
             rejected_bo_ids = []
 
@@ -949,6 +939,19 @@ def run_interface():
                             rejected_rev_ids.extend(rejected["idx_rev"].tolist())
                         if "idx_bo" in rejected.columns:
                             rejected_bo_ids.extend(rejected["idx_bo"].tolist())
+                            # ✅ NO INVOICE = Valide == True mais Invoice != yes
+                    if "Invoice" in df.columns:
+                        accepted = df[df["Valide"] == True].copy()
+                        if not accepted.empty:
+                            accepted_noinv = accepted[_is_no_invoice(accepted["Invoice"])].copy()
+                            if not accepted_noinv.empty:
+                                noinv_parts.append(accepted_noinv)
+
+                                if "idx_rev" in accepted_noinv.columns:
+                                    noinv_rev_ids.extend(accepted_noinv["idx_rev"].dropna().tolist())
+                                if "idx_bo" in accepted_noinv.columns:
+                                    noinv_bo_ids.extend(accepted_noinv["idx_bo"].dropna().tolist())
+
 
             rows_to_add_rev = df_rev_clean[df_rev_clean["idx_rev"].isin(rejected_rev_ids)]
             rows_to_add_bo = df_bo_clean[df_bo_clean["idx_bo"].isin(rejected_bo_ids)]
@@ -962,6 +965,25 @@ def run_interface():
 
             st.session_state["ko_rev_final"] = current_ko_rev
             st.session_state["ko_bo_final"] = current_ko_bo
+
+            # ✅ On construit / met à jour la liste "OK sans facture"
+            if len(noinv_parts) > 0:
+                df_noinv = pd.concat(noinv_parts, ignore_index=True)
+
+                # dédoublonnage si possible
+                if "idx_rev" in df_noinv.columns and "idx_bo" in df_noinv.columns:
+                    df_noinv = df_noinv.drop_duplicates(subset=["idx_rev", "idx_bo"])
+                else:
+                    df_noinv = df_noinv.drop_duplicates()
+
+                st.session_state["no_invoice_final"] = df_noinv
+                st.session_state["no_invoice_ids_rev"] = set(noinv_rev_ids)
+                st.session_state["no_invoice_ids_bo"] = set(noinv_bo_ids)
+            else:
+                st.session_state["no_invoice_final"] = pd.DataFrame()
+                st.session_state["no_invoice_ids_rev"] = set()
+                st.session_state["no_invoice_ids_bo"] = set()
+
 
             st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
             st.rerun()
@@ -985,24 +1007,28 @@ def run_interface():
         st.dataframe(st.session_state["ko_bo_final"])
 
     with tab4:
-        st.header("🧾 Factures à ajouter (dépense présente dans le BO)")
+        st.header("🧾 Dépenses OK sans facture")
 
-        st.warning(
-            "Ces dépenses sont bien matchées avec le BackOffice (donc ce n’est pas un KO 'dépense manquante'), "
-            "mais la colonne **Invoice** n’est pas à **yes**.\n\n"
-            "👉 Action : **ajouter / rattacher la facture (pièce)** dans le BackOffice."
-        )
+        df_noinv = st.session_state["no_invoice_final"]
 
-        st.dataframe(df_factures_manquantes, use_container_width=True)
+        if df_noinv is None or df_noinv.empty:
+            st.info("Aucune dépense 'OK' sans facture pour le moment.")
+        else:
+            st.warning(
+                "Ces lignes sont **matchées** (la dépense existe) mais la colonne **Invoice** n’est pas à **yes**.\n\n"
+                "👉 Action : **ajouter / rattacher une facture (pièce)** dans le BackOffice."
+            )
 
-        # Optionnel : export CSV
-        csv_factures = df_factures_manquantes.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Télécharger CSV — Factures à ajouter",
-            data=csv_factures,
-            file_name="factures_a_ajouter.csv",
-            mime="text/csv"
-        )
+            # tu peux réutiliser safe_cols si tu veux limiter l'affichage
+            st.dataframe(df_noinv, use_container_width=True)
+
+            csv_noinv = df_noinv.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Télécharger CSV — Dépenses OK sans facture",
+                data=csv_noinv,
+                file_name="depenses_ok_sans_facture.csv",
+                mime="text/csv"
+            )
 
 
     with tab5:
