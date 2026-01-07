@@ -941,7 +941,7 @@ def run_interface():
                 cols_wanted = [
                     "Date", "Description", "Montant", 
                     "ID", "Payer", "Exchange rate",
-                    "Orig currency", "Orig amount", "ExperienceDate"
+                    "Orig currency", "Orig amount", "ExperienceDate",
                     "email", "email_binome", "Compte"
                 ]
 
