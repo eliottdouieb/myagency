@@ -939,9 +939,9 @@ def run_interface():
 
                 # Colonnes finales "métier" voulues
                 cols_wanted = [
-                    "Date", "Description", "Montant", "ExperienceDate",
+                    "Date", "Description", "Montant", 
                     "ID", "Payer", "Exchange rate",
-                    "Orig currency", "Orig amount",
+                    "Orig currency", "Orig amount", "ExperienceDate"
                     "email", "email_binome", "Compte"
                 ]
 
@@ -1119,10 +1119,10 @@ def run_interface():
                     # Colonnes export (tu peux en rajouter si besoin)
                     cols_export = [
                         "Type",
-                        "Date", "Description", "Montant","ExperienceDate",
+                        "Date", "Description", "Montant",
                         "ID", "Payer", "Exchange rate",
                         "Orig currency", "Orig amount",
-                        "email", "email_binome"
+                        "email", "email_binome","ExperienceDate"
                     ]
 
                     # Harmoniser colonnes (crée les colonnes manquantes)
