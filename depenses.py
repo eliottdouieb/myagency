@@ -785,7 +785,7 @@ def run_interface():
             "idx_rev", "idx_bo", "Date", "Montant",
             "Description", "Libelle","Invoice","ExperienceDate", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte"
+            "email","email_binome","Compte","NumCompta"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
@@ -829,7 +829,7 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
+                "email", "email_binome","NumCompta"
             ]
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
@@ -849,7 +849,7 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
+                "email", "email_binome","NumCompta"
             ]
             df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[
                 [c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]
@@ -872,7 +872,7 @@ def run_interface():
                 "Date", "Montant_rev", "Montant_bo",
                 "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
+                "email", "email_binome","NumCompta"
             ]
             df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
             edited_sm = display_interactive_table(df_sm_view, "sm")
@@ -893,7 +893,7 @@ def run_interface():
                 "Montant_rev", "Montant_bo",
                 "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome"
+                "email", "email_binome","NumCompta"
             ]
             df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
             edited_pot = display_interactive_table(df_pot_view, "pot")
@@ -942,7 +942,7 @@ def run_interface():
                     "Date", "Description", "Montant", 
                     "ID", "Payer", "Exchange rate",
                     "Orig currency", "Orig amount", "ExperienceDate",
-                    "email", "email_binome", "Compte"
+                    "email", "email_binome", "Compte","NumCompta"
                 ]
 
                 # Colonnes techniques à conserver si présentes (pour ids / dédoublonnage)
@@ -1122,7 +1122,7 @@ def run_interface():
                         "Date", "Description", "Montant",
                         "ID", "Payer", "Exchange rate",
                         "Orig currency", "Orig amount",
-                        "email", "email_binome","ExperienceDate"
+                        "email", "email_binome","ExperienceDate","NumCompta"
                     ]
 
                     # Harmoniser colonnes (crée les colonnes manquantes)
@@ -1145,6 +1145,12 @@ def run_interface():
                     if "Date" in df_export.columns and len(df_export) > 0:
                         try:
                             df_export["Date"] = pd.to_datetime(df_export["Date"], errors="coerce").dt.strftime("%d-%m-%Y")
+                        except:
+                            pass
+
+                    if "ExperienceDate" in df_export.columns and len(df_export) > 0:
+                        try:
+                            df_export["ExperienceDate"] = pd.to_datetime(df_export["ExperienceDate"], errors="coerce").dt.strftime("%d-%m-%Y")
                         except:
                             pass
 
