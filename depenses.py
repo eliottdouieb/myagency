@@ -638,7 +638,6 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         )
-        .query("Invoice == 'yes'")
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
     maj_sets(matches_ok)
@@ -784,7 +783,7 @@ def run_interface():
         # Colonnes de base
         base_cols = [
             "idx_rev", "idx_bo", "Date", "Montant",
-            "Description", "Libelle","Invoice", "Payer",
+            "Description", "Libelle","Invoice","ExperienceDate", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
             "email","email_binome","Compte"
         ]
@@ -828,7 +827,7 @@ def run_interface():
             cols_sd = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant", "Description", "Libelle","Invoice", "Payer",
+                "Montant", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -848,7 +847,7 @@ def run_interface():
             cols_pots_sans_conversion = [
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
-                "Montant_rev", "Montant_bo", "Description", "Libelle","Invoice", "Payer",
+                "Montant_rev", "Montant_bo", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -871,7 +870,7 @@ def run_interface():
             cols_sm = [
                 "idx_rev", "idx_bo",
                 "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle","Invoice", "Payer",
+                "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -892,7 +891,7 @@ def run_interface():
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle","Invoice", "Payer",
+                "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
                 "email", "email_binome"
             ]
@@ -915,6 +914,51 @@ def run_interface():
     )
 
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
+
+
+            def normalize_no_invoice_df(df: pd.DataFrame) -> pd.DataFrame:
+                """
+                Normalise un df "OK sans facture" venant de n'importe quel tableau (ok/sl/sd/pot/...).
+                Objectif: sortir un df avec colonnes homogènes:
+                Date, Description, Montant, ExperienceDate, ID, Payer, Exchange rate,
+                Orig currency, Orig amount, email, email_binome, Compte
+                + on conserve idx_rev/idx_bo/Invoice si présents (utile pour tes ids + dédoublonnage).
+                """
+                if df is None or df.empty:
+                    return df
+
+                out = df.copy()
+
+                # Date => Date sinon Date_rev
+                if "Date" not in out.columns and "Date_rev" in out.columns:
+                    out["Date"] = out["Date_rev"]
+
+                # Montant => Montant sinon Montant_rev
+                if "Montant" not in out.columns and "Montant_rev" in out.columns:
+                    out["Montant"] = out["Montant_rev"]
+
+                # Colonnes finales "métier" voulues
+                cols_wanted = [
+                    "Date", "Description", "Montant", "ExperienceDate",
+                    "ID", "Payer", "Exchange rate",
+                    "Orig currency", "Orig amount",
+                    "email", "email_binome", "Compte"
+                ]
+
+                # Colonnes techniques à conserver si présentes (pour ids / dédoublonnage)
+                tech_cols = [c for c in ["idx_rev", "idx_bo", "Invoice"] if c in out.columns]
+
+                # Crée les colonnes manquantes
+                for c in cols_wanted:
+                    if c not in out.columns:
+                        out[c] = ""
+
+                # Retour dans l’ordre souhaité
+                return out[cols_wanted + tech_cols]
+
+
+
+
             all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
 
             def _is_no_invoice(s):
@@ -943,13 +987,15 @@ def run_interface():
                         accepted = df[df["Valide"] == True].copy()
                         if not accepted.empty:
                             accepted_noinv = accepted[_is_no_invoice(accepted["Invoice"])].copy()
-                            if not accepted_noinv.empty:
-                                noinv_parts.append(accepted_noinv)
+                        if not accepted_noinv.empty:
+                            accepted_noinv = normalize_no_invoice_df(accepted_noinv)
+                            noinv_parts.append(accepted_noinv)
 
-                                if "idx_rev" in accepted_noinv.columns:
-                                    noinv_rev_ids.extend(accepted_noinv["idx_rev"].dropna().tolist())
-                                if "idx_bo" in accepted_noinv.columns:
-                                    noinv_bo_ids.extend(accepted_noinv["idx_bo"].dropna().tolist())
+                            if "idx_rev" in accepted_noinv.columns:
+                                noinv_rev_ids.extend(accepted_noinv["idx_rev"].dropna().tolist())
+                            if "idx_bo" in accepted_noinv.columns:
+                                noinv_bo_ids.extend(accepted_noinv["idx_bo"].dropna().tolist())
+
 
 
             rows_to_add_rev = df_rev_clean[df_rev_clean["idx_rev"].isin(rejected_rev_ids)]
@@ -1073,11 +1119,10 @@ def run_interface():
                     # Colonnes export (tu peux en rajouter si besoin)
                     cols_export = [
                         "Type",
-                        "Date", "Description", "Montant",
+                        "Date", "Description", "Montant","ExperienceDate",
                         "ID", "Payer", "Exchange rate",
                         "Orig currency", "Orig amount",
-                        "email", "email_binome",
-                        "Invoice"
+                        "email", "email_binome"
                     ]
 
                     # Harmoniser colonnes (crée les colonnes manquantes)
@@ -1099,7 +1144,7 @@ def run_interface():
                     # Format date si possible
                     if "Date" in df_export.columns and len(df_export) > 0:
                         try:
-                            df_export["Date"] = pd.to_datetime(df_export["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                            df_export["Date"] = pd.to_datetime(df_export["Date"], errors="coerce").dt.strftime("%d-%m-%Y")
                         except:
                             pass
 
