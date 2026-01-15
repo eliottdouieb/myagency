@@ -15,7 +15,7 @@ import streamlit as st
 
 
 # ============================================================
-# 0. Configuration de la page & Style & Secrets
+# 0. Configuration de la page & Style & Secretsss
 # ============================================================
 
 st.set_page_config(
@@ -276,6 +276,84 @@ def _to_iso_date(v) -> str | None:
         except Exception:
             return None
 
+
+def crm_login():
+    # cache simple en session pour éviter de relog à chaque ligne
+    if "crm_token" in st.session_state and "crm_hash" in st.session_state:
+        return st.session_state["crm_hash"], st.session_state["crm_token"]
+
+    BASE_URL = st.secrets["crm"]["base_url"].rstrip("/")
+    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
+
+    EMAIL = st.secrets["crm"]["email"]
+    PASSWORD = st.secrets["crm"]["password"]
+
+    auth_resp = requests.post(AUTH_URL, json={"email": EMAIL, "password": PASSWORD}, timeout=30)
+    auth_resp.raise_for_status()
+
+    auth_data = auth_resp.json()
+    if not auth_data.get("success"):
+        raise RuntimeError(f"Login failed: {auth_data}")
+
+    ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
+    ApiToken = str(auth_data.get("ApiToken", "")).strip()
+    if not ConciergeHash or not ApiToken:
+        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
+
+    st.session_state["crm_hash"] = ConciergeHash
+    st.session_state["crm_token"] = ApiToken
+    return ConciergeHash, ApiToken
+
+
+def crm_update_amount(invoice_number: str, new_amount: float, date_iso: str):
+    BASE_URL = st.secrets["crm"]["base_url"].rstrip("/")
+    AMOUNT_URL_TMPL = f"{BASE_URL}/api/myagency/controller/amount/{{ConciergeHash}}"
+
+    ConciergeHash, ApiToken = crm_login()
+    url = AMOUNT_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "type": "expense",
+            "invoiceNumber": str(invoice_number).strip(),
+            "date": date_iso,
+            "amount": float(new_amount),
+        }
+    }
+
+    headers = {"Content-Type": "application/json", "ApiToken": ApiToken}
+    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+
+    ctype = (resp.headers.get("content-type") or "").lower()
+    body = resp.json() if "application/json" in ctype else resp.text
+    return resp.status_code, body
+
+
+def crm_update_date(invoice_number: str, date_iso: str):
+    BASE_URL = st.secrets["crm"]["base_url"].rstrip("/")
+    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+
+    ConciergeHash, ApiToken = crm_login()
+    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+
+    payload = {
+        "payload": {
+            "InvoiceNumber": str(invoice_number).strip(),
+            "type": "partner",
+            "field": "achat",
+            "value": "",
+            "date": date_iso
+        }
+    }
+
+    headers = {"Content-Type": "application/json", "ApiToken": ApiToken}
+    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+
+    ctype = (resp.headers.get("content-type") or "").lower()
+    body = resp.json() if "application/json" in ctype else resp.text
+    return resp.status_code, body
+
+
 def run_api_crm(num_de_piece,value,date):
     BASE_URL = st.secrets["crm"]["base_url"]
     AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
@@ -408,6 +486,10 @@ def run_interface():
 
     if "api_row" not in st.session_state:
         st.session_state["api_row"] = []
+
+    if "crm_logs" not in st.session_state:
+        st.session_state["crm_logs"] = []
+
 
     if "df_bo_raw" not in st.session_state:
         st.session_state["df_bo_raw"] = df_bo_raw
@@ -756,6 +838,24 @@ def run_interface():
     col5.metric("OK sans facture", len(st.session_state["no_invoice_final"]))
 
 
+    st.markdown("## 📡 Journal des mises à jour CRM")
+
+    if len(st.session_state["crm_logs"]) == 0:
+        st.info("Aucune mise à jour CRM effectuée pour l’instantt.")
+    else:
+        log_df = pd.DataFrame(st.session_state["crm_logs"])
+        st.dataframe(
+            log_df.sort_values("time", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if st.button("🧹 Effacer les logs CRM"):
+            st.session_state["crm_logs"] = []
+            st.rerun()
+
+
+
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "✅ Matches & Validation",
     "⚠️ KO Revolut (À traiter)",
@@ -915,6 +1015,8 @@ def run_interface():
 
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
 
+            
+
 
             def normalize_no_invoice_df(df: pd.DataFrame) -> pd.DataFrame:
                 """
@@ -960,6 +1062,93 @@ def run_interface():
 
 
             all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
+            
+
+            def _get_invoice_col(df):
+                # on essaye plusieurs noms possibles
+                for c in ["NumCompta", "NumCompta_bo", "InvoiceNumber", "invoiceNumber"]:
+                    if c in df.columns:
+                        return c
+                return None
+
+            def _safe_iso_date(v):
+                d = _to_iso_date(v)
+                return d or ""
+
+            from datetime import datetime
+
+            def _log_crm(invoice, action, status, message):
+                st.session_state["crm_logs"].append({
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "invoice": invoice,
+                    "action": action,
+                    "status": status,
+                    "message": str(message)[:300]
+    })
+
+
+            # =========================
+            # CRM updates sur VALIDÉS
+            # =========================
+
+            # 3ème tableau: edited_sd -> date = Date_rev
+            if edited_sd is not None and not edited_sd.empty and "Valide" in edited_sd.columns:
+                inv_col = _get_invoice_col(edited_sd)
+                if inv_col:
+                    accepted = edited_sd[edited_sd["Valide"] == True].copy()
+                    for _, r in accepted.iterrows():
+                        inv = str(r.get(inv_col, "")).strip()
+                        date_iso = _safe_iso_date(r.get("Date_rev"))
+                        if inv and date_iso:
+                            status, body = crm_update_date(inv, date_iso)
+                            _log_crm(inv, "DATE", status, body)
+
+
+            # 4ème tableau: edited_pot_sans_conversion -> date = Date_rev
+            if edited_pot_sans_conversion is not None and not edited_pot_sans_conversion.empty and "Valide" in edited_pot_sans_conversion.columns:
+                inv_col = _get_invoice_col(edited_pot_sans_conversion)
+                if inv_col:
+                    accepted = edited_pot_sans_conversion[edited_pot_sans_conversion["Valide"] == True].copy()
+                    for _, r in accepted.iterrows():
+                        inv = str(r.get(inv_col, "")).strip()
+                        date_iso = _safe_iso_date(r.get("Date_rev"))
+                        if inv and date_iso:
+                            status, body = crm_update_date(inv, date_iso)
+                            _log_crm(inv, "DATE", status, body)
+
+
+            # 5ème tableau: edited_sm -> montant = Montant_rev
+            if edited_sm is not None and not edited_sm.empty and "Valide" in edited_sm.columns:
+                inv_col = _get_invoice_col(edited_sm)
+                if inv_col:
+                    accepted = edited_sm[edited_sm["Valide"] == True].copy()
+                    for _, r in accepted.iterrows():
+                        inv = str(r.get(inv_col, "")).strip()
+                        amt = r.get("Montant_rev")
+                        # endpoint amount demande une date -> on prend Date si dispo sinon Date_rev
+                        date_iso = _safe_iso_date(r.get("Date") if "Date" in accepted.columns else r.get("Date_rev"))
+                        if inv and pd.notna(amt) and date_iso:
+                            status, body = crm_update_amount(inv, float(amt), date_iso)
+                            _log_crm(inv, "AMOUNT", st2, b2)
+
+
+            # 6ème tableau: edited_pot -> montant + date (Montant_rev + Date_rev)
+            if edited_pot is not None and not edited_pot.empty and "Valide" in edited_pot.columns:
+                inv_col = _get_invoice_col(edited_pot)
+                if inv_col:
+                    accepted = edited_pot[edited_pot["Valide"] == True].copy()
+                    for _, r in accepted.iterrows():
+                        inv = str(r.get(inv_col, "")).strip()
+                        amt = r.get("Montant_rev")
+                        date_iso = _safe_iso_date(r.get("Date_rev"))
+                        if inv and date_iso:
+                            st1, b1 = crm_update_date(inv, date_iso)
+                            _log_crm(inv, "DATE", status, body)
+                        if inv and pd.notna(amt) and date_iso:
+                            st2, b2 = crm_update_amount(inv, float(amt), date_iso)
+                            _log_crm(inv, "AMOUNT", st2, b2)
+
+
 
             def _is_no_invoice(s):
                 # retourne True si Invoice != "yes" (robuste aux NaN / espaces / casse)
@@ -987,9 +1176,9 @@ def run_interface():
                         accepted = df[df["Valide"] == True].copy()
                         if not accepted.empty:
                             accepted_noinv = accepted[_is_no_invoice(accepted["Invoice"])].copy()
-                        if not accepted_noinv.empty:
-                            accepted_noinv = normalize_no_invoice_df(accepted_noinv)
-                            noinv_parts.append(accepted_noinv)
+                            if not accepted_noinv.empty:
+                                accepted_noinv = normalize_no_invoice_df(accepted_noinv)
+                                noinv_parts.append(accepted_noinv)
 
                             if "idx_rev" in accepted_noinv.columns:
                                 noinv_rev_ids.extend(accepted_noinv["idx_rev"].dropna().tolist())
@@ -1168,4 +1357,4 @@ def run_interface():
             st.warning("⚠️ Secrets GCP manquants.")
 
     # elif not uploaded_revolut:
-    # st.info("Veuillez commencer par charger le fichier Revolut ci-dessus."))
+    # st.info("Veuillez commencer par chargeeeeer le fichier Revolut ci-dessus."))
