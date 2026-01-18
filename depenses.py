@@ -490,6 +490,8 @@ def run_interface():
     if "crm_logs" not in st.session_state:
         st.session_state["crm_logs"] = []
 
+    if "crm_api_logs_ko" not in st.session_state:
+        st.session_state["crm_api_logs_ko"] = []
 
     if "df_bo_raw" not in st.session_state:
         st.session_state["df_bo_raw"] = df_bo_raw
@@ -874,6 +876,8 @@ def run_interface():
     # (reprends ici ton bloc tab1 / tab2 / tab3 / tab4 inchangé)
 
     # --- TAB 1 : Tableaux Interactifs ---
+
+    
     with tab1:
         st.info(
             "Décochez la case 'Valide ?' si un rapprochement est incorrect, "
@@ -1015,7 +1019,9 @@ def run_interface():
 
         if st.button("🔄 Mettre à jour les KO avec les rejets"):
 
-            
+            # Reset des logs du bouton KO
+            st.session_state["crm_api_logs_ko"] = []
+            api_logs = st.session_state["crm_api_logs_ko"]
 
 
             def normalize_no_invoice_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -1077,14 +1083,15 @@ def run_interface():
 
             from datetime import datetime
 
-            def _log_crm(invoice, action, status, message):
-                st.session_state["crm_logs"].append({
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "invoice": invoice,
-                    "action": action,
-                    "status": status,
-                    "message": str(message)[:300]
-    })
+            # def _log_crm(invoice, action, status, message):
+            #     st.session_state["crm_logs"].append({
+            #         "time": datetime.now().strftime("%H:%M:%S"),
+            #         "invoice": invoice,
+            #         "action": action,
+            #         "status": status,
+            #         "message": str(message)[:300]
+    # })
+                
 
 
             # =========================
@@ -1101,7 +1108,10 @@ def run_interface():
                         date_iso = _safe_iso_date(r.get("Date_rev"))
                         if inv and date_iso:
                             status, body = crm_update_date(inv, date_iso)
-                            _log_crm(inv, "DATE", status, body)
+                            api_logs.append(
+                                f"📅 CRM date — numéro de piece {inv} → {date_iso} "
+                                f"(HTTP {status}) | {body}"
+)
 
 
             # 4ème tableau: edited_pot_sans_conversion -> date = Date_rev
@@ -1114,7 +1124,11 @@ def run_interface():
                         date_iso = _safe_iso_date(r.get("Date_rev"))
                         if inv and date_iso:
                             status, body = crm_update_date(inv, date_iso)
-                            _log_crm(inv, "DATE", status, body)
+                            api_logs.append(
+                                f"📅 CRM date — numéro de piece {inv} → {date_iso} "
+                                f"(HTTP {status}) | {body}"
+)
+
 
 
             # 5ème tableau: edited_sm -> montant = Montant_rev
@@ -1129,7 +1143,11 @@ def run_interface():
                         date_iso = _safe_iso_date(r.get("Date") if "Date" in accepted.columns else r.get("Date_rev"))
                         if inv and pd.notna(amt) and date_iso:
                             status, body = crm_update_amount(inv, float(amt), date_iso)
-                            _log_crm(inv, "AMOUNT", st2, b2)
+                            api_logs.append(
+                                f"💰 CRM montant — numéro de piece {inv} → {amt} "
+                                f"(HTTP {status}) | {body}"
+                            )
+
 
 
             # 6ème tableau: edited_pot -> montant + date (Montant_rev + Date_rev)
@@ -1142,11 +1160,16 @@ def run_interface():
                         amt = r.get("Montant_rev")
                         date_iso = _safe_iso_date(r.get("Date_rev"))
                         if inv and date_iso:
-                            st1, b1 = crm_update_date(inv, date_iso)
-                            _log_crm(inv, "DATE", status, body)
+                            status, body = crm_update_date(inv, date_iso)
+                            api_logs.append(
+                                f"📅 CRM date — numéro de piece {inv} → {date_iso} (HTTP {status}) | {body}"
+                            )
+
                         if inv and pd.notna(amt) and date_iso:
-                            st2, b2 = crm_update_amount(inv, float(amt), date_iso)
-                            _log_crm(inv, "AMOUNT", st2, b2)
+                            status, body = crm_update_amount(inv, float(amt), date_iso)
+                            api_logs.append(
+                                f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}"
+                            )
 
 
 
@@ -1221,6 +1244,21 @@ def run_interface():
 
             st.success(f"Mise à jour effectuée ! {len(rejected_rev_ids)} rapprochements rejetés.")
             st.rerun()
+
+        # =========================
+        # 📌 Logs CRM — bouton KO
+        # =========================
+        if st.session_state.get("crm_api_logs_ko"):
+            with st.expander(
+                "📌 Logs CRM — mises à jour après « Mettre à jour les KO avec les rejets »",
+                expanded=True
+            ):
+                for line in st.session_state["crm_api_logs_ko"]:
+                    st.write(line)
+
+            if st.button("🧹 Effacer ces logs", key="clear_crm_api_logs_ko"):
+                st.session_state["crm_api_logs_ko"] = []
+                st.rerun()
 
     # --- TAB 2 & 3 : Affichage depuis le Session State ---
     with tab2:
