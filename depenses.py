@@ -186,6 +186,54 @@ def get_ai_mapping(api_key, rev_labels, bo_labels):
         return {}
 
 
+currency_symbols = {
+    "€": "EUR",        # Euros
+    "$": "USD",        # Dollars américains
+    "£": "GBP",        # Livres sterling
+    "¥": "JPY",        # Yen japonais
+    "TBAT": "THB",     # Baht thaïlandais
+    "$AUD": "AUD",     # Dollar australien
+    "CHF": "CHF",      # Franc suisse
+    "$C": "CAD",        # Dollar canadien
+    "ILS": "ILS",      # Shekel israélien
+    "FT": "HUF",       # Forint hongrois
+    "IDR": "IDR",      # Roupie indonésienne
+    "INR": "INR",      # Roupie indienne
+    "ISK": "ISK",      # Couronne islandaise
+    "CNY": "CNY",      # Yuan chinois
+    "DKK": "DKK",      # Couronne danoise
+    "MRY": "MYR",      # Ringgit malaisien (erreur typographique dans CSV)
+    "NOK": "NOK",      # Couronne norvégienne
+    "SEK": "SEK",      # Couronne suédoise
+    "SGD": "SGD",      # Dollar de Singapour
+    "TRY": "TRY",      # Livre turque
+    "HKD": "HKD",      # Dollar de Hong Kong
+    "BRL": "BRL",      # Réal brésilien
+    "KRW": "KRW",      # Won sud-coréen
+    "MXN": "MXN"       # Peso mexicain
+}
+
+
+def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: str = "EUR") -> float:
+
+    # Conversion du symbole si nécessaire
+    try:
+        from_currency = currency_symbols[from_currency]
+        date_iso = _to_iso_date(date)
+        url = f"https://api.frankfurter.app/{date_iso}"
+        params = {"from": from_currency.upper(), "to": to_currency.upper()}
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        rate = data.get("rates", {}).get(to_currency.upper())
+        if rate is None:
+            raise ValueError(f"Taux introuvable dans la réponse: {data}")
+        return float(rate)
+    except:
+        return False
+
+
 def clean_dataframes(df_rev, df_bo, match_libelle):
 
     # BO
@@ -329,29 +377,36 @@ def crm_update_amount(invoice_number: str, new_amount: float, date_iso: str):
     return resp.status_code, body
 
 
-def crm_update_date(invoice_number: str, date_iso: str):
+def crm_update_date(invoice_number: str, current_date_iso: str, new_date_iso: str):
     BASE_URL = st.secrets["crm"]["base_url"].rstrip("/")
-    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+    DATE_URL_TMPL = f"{BASE_URL}/api/myagency/controller/date/{{ConciergeHash}}"
 
     ConciergeHash, ApiToken = crm_login()
-    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+    url = DATE_URL_TMPL.format(ConciergeHash=ConciergeHash)
 
     payload = {
         "payload": {
-            "InvoiceNumber": str(invoice_number).strip(),
-            "type": "partner",
-            "field": "achat",
-            "value": "",
-            "date": date_iso
+            "type": "expense",  # "expense" || "partner"
+            "invoiceNumber": str(invoice_number).strip(),
+            "currentDate": current_date_iso,
+            "newDate": new_date_iso
         }
     }
 
-    headers = {"Content-Type": "application/json", "ApiToken": ApiToken}
+    headers = {
+        "Content-Type": "application/json",
+        "ApiToken": ApiToken
+    }
+
     resp = requests.post(url, json=payload, headers=headers, timeout=15)
 
-    ctype = (resp.headers.get("content-type") or "").lower()
-    body = resp.json() if "application/json" in ctype else resp.text
+    try:
+        body = resp.json()
+    except:
+        body = {"raw": resp.text}
+
     return resp.status_code, body
+
 
 
 def run_api_crm(num_de_piece,value,date):
@@ -840,21 +895,21 @@ def run_interface():
     col5.metric("OK sans facture", len(st.session_state["no_invoice_final"]))
 
 
-    st.markdown("## 📡 Journal des mises à jour CRM")
+    # st.markdown("## 📡 Journal des mises à jour CRM")
 
-    if len(st.session_state["crm_logs"]) == 0:
-        st.info("Aucune mise à jour CRM effectuée pour l’instantt.")
-    else:
-        log_df = pd.DataFrame(st.session_state["crm_logs"])
-        st.dataframe(
-            log_df.sort_values("time", ascending=False),
-            use_container_width=True,
-            hide_index=True
-        )
+    # if len(st.session_state["crm_logs"]) == 0:
+    #     st.info("Aucune mise à jour CRM effectuée pour l’instantt.")
+    # else:
+    #     log_df = pd.DataFrame(st.session_state["crm_logs"])
+    #     st.dataframe(
+    #         log_df.sort_values("time", ascending=False),
+    #         use_container_width=True,
+    #         hide_index=True
+    #     )
 
-        if st.button("🧹 Effacer les logs CRM"):
-            st.session_state["crm_logs"] = []
-            st.rerun()
+    #     if st.button("🧹 Effacer les logs CRM"):
+    #         st.session_state["crm_logs"] = []
+    #         st.rerun()
 
 
 
@@ -1046,11 +1101,14 @@ def run_interface():
                     out["Montant"] = out["Montant_rev"]
 
                 # Colonnes finales "métier" voulues
-                cols_wanted = [
+                [
                     "Date", "Description", "Montant", 
-                    "ID", "Payer", "Exchange rate",
-                    "Orig currency", "Orig amount", "ExperienceDate",
-                    "email", "email_binome", "Compte","NumCompta"
+                    "ID",  # ✅ GARANTI
+                    "Payer", "Exchange rate",
+                    "Orig currency", "Orig amount", 
+                    "ExperienceDate",
+                    "email", "email_binome", 
+                    "Compte", "NumCompta"
                 ]
 
                 # Colonnes techniques à conserver si présentes (pour ids / dédoublonnage)
@@ -1105,13 +1163,15 @@ def run_interface():
                     accepted = edited_sd[edited_sd["Valide"] == True].copy()
                     for _, r in accepted.iterrows():
                         inv = str(r.get(inv_col, "")).strip()
-                        date_iso = _safe_iso_date(r.get("Date_rev"))
-                        if inv and date_iso:
-                            status, body = crm_update_date(inv, date_iso)
+                        current_date = _safe_iso_date(r.get("Date_bo"))
+                        new_date = _safe_iso_date(r.get("Date_rev"))
+
+                        if inv and current_date and new_date:
+                            status, body = crm_update_date(inv, current_date, new_date)
                             api_logs.append(
-                                f"📅 CRM date — numéro de piece {inv} → {date_iso} "
-                                f"(HTTP {status}) | {body}"
-)
+                                f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}"
+                            )
+
 
 
             # 4ème tableau: edited_pot_sans_conversion -> date = Date_rev
@@ -1121,13 +1181,14 @@ def run_interface():
                     accepted = edited_pot_sans_conversion[edited_pot_sans_conversion["Valide"] == True].copy()
                     for _, r in accepted.iterrows():
                         inv = str(r.get(inv_col, "")).strip()
-                        date_iso = _safe_iso_date(r.get("Date_rev"))
-                        if inv and date_iso:
-                            status, body = crm_update_date(inv, date_iso)
+                        current_date = _safe_iso_date(r.get("Date_bo"))
+                        new_date = _safe_iso_date(r.get("Date_rev"))
+
+                        if inv and current_date and new_date:
+                            status, body = crm_update_date(inv, current_date, new_date)
                             api_logs.append(
-                                f"📅 CRM date — numéro de piece {inv} → {date_iso} "
-                                f"(HTTP {status}) | {body}"
-)
+                                f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}"
+                            )
 
 
 
@@ -1158,12 +1219,15 @@ def run_interface():
                     for _, r in accepted.iterrows():
                         inv = str(r.get(inv_col, "")).strip()
                         amt = r.get("Montant_rev")
-                        date_iso = _safe_iso_date(r.get("Date_rev"))
-                        if inv and date_iso:
-                            status, body = crm_update_date(inv, date_iso)
+                        current_date = _safe_iso_date(r.get("Date_bo"))
+                        new_date = _safe_iso_date(r.get("Date_rev"))
+
+                        if inv and current_date and new_date:
+                            status, body = crm_update_date(inv, current_date, new_date)
                             api_logs.append(
-                                f"📅 CRM date — numéro de piece {inv} → {date_iso} (HTTP {status}) | {body}"
+                                f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}"
                             )
+
 
                         if inv and pd.notna(amt) and date_iso:
                             status, body = crm_update_amount(inv, float(amt), date_iso)
