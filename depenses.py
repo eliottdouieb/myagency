@@ -1080,46 +1080,37 @@ def run_interface():
 
 
             def normalize_no_invoice_df(df: pd.DataFrame) -> pd.DataFrame:
-                """
-                Normalise un df "OK sans facture" venant de n'importe quel tableau (ok/sl/sd/pot/...).
-                Objectif: sortir un df avec colonnes homogènes:
-                Date, Description, Montant, ExperienceDate, ID, Payer, Exchange rate,
-                Orig currency, Orig amount, email, email_binome, Compte
-                + on conserve idx_rev/idx_bo/Invoice si présents (utile pour tes ids + dédoublonnage).
-                """
                 if df is None or df.empty:
                     return df
 
                 out = df.copy()
 
-                # Date => Date sinon Date_rev
+                # Date
                 if "Date" not in out.columns and "Date_rev" in out.columns:
                     out["Date"] = out["Date_rev"]
 
-                # Montant => Montant sinon Montant_rev
+                # Montant
                 if "Montant" not in out.columns and "Montant_rev" in out.columns:
                     out["Montant"] = out["Montant_rev"]
 
-                # Colonnes finales "métier" voulues
-                [
-                    "Date", "Description", "Montant", 
-                    "ID",  # ✅ GARANTI
-                    "Payer", "Exchange rate",
-                    "Orig currency", "Orig amount", 
+                # Colonnes métier standardisées
+                cols_wanted = [
+                    "Date", "Description", "Montant",
+                    "ID", "Payer", "Exchange rate",
+                    "Orig currency", "Orig amount",
                     "ExperienceDate",
-                    "email", "email_binome", 
+                    "email", "email_binome",
                     "Compte", "NumCompta"
                 ]
 
-                # Colonnes techniques à conserver si présentes (pour ids / dédoublonnage)
+                # Colonnes techniques à conserver
                 tech_cols = [c for c in ["idx_rev", "idx_bo", "Invoice"] if c in out.columns]
 
-                # Crée les colonnes manquantes
+                # Créer les colonnes manquantes
                 for c in cols_wanted:
                     if c not in out.columns:
                         out[c] = ""
 
-                # Retour dans l’ordre souhaité
                 return out[cols_wanted + tech_cols]
 
 
