@@ -1229,11 +1229,15 @@ def run_interface():
                             )
 
 
+                        # endpoint amount demande une date -> on prend Date_rev si dispo, sinon Date_bo
+                        date_iso = _safe_iso_date(r.get("Date_rev") if "Date_rev" in accepted.columns else r.get("Date_bo"))
+
                         if inv and pd.notna(amt) and date_iso:
                             status, body = crm_update_amount(inv, float(amt), date_iso)
                             api_logs.append(
                                 f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}"
                             )
+
 
 
 
