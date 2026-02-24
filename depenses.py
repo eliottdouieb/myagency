@@ -62,7 +62,7 @@ except Exception as e:
 # with st.sidebar:
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
-sheet_name = "Suivi Dépenses Conciergerie"
+sheet_name = "Suivi depenses Revolut"
 mail_mapping = {
     "Aurelie Goncalves": {
         "mail": "aurelie@myagency.group",
@@ -1386,7 +1386,7 @@ def run_interface():
                     sh = gc.open(sheet_name)
 
                     try:
-                        ws = sh.worksheet("A traiter")
+                        ws = sh.worksheet("Feuille 1")
                     except:
                         ws = sh.get_worksheet(0)
 
