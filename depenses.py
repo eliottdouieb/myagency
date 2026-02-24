@@ -105,8 +105,8 @@ mail_mapping = {
         "mail_binome": "alexandra@myagency.group"
     },
     "Yves Sauveur Abitbol": {
-        "mail": "gloviaconsulting@gmail.com",
-        "mail_binome": 'eliottdouieb@gmail.com'
+        "mail": "yves@myagency.group",
+        "mail_binome": 'sofia@myagency.group'
     },
     "Zoe Marie Mevil": {
         "mail": "hanaa@myagency.group",
