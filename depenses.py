@@ -1029,13 +1029,32 @@ def run_interface():
             cols_sm = [
                 "idx_rev", "idx_bo",
                 "Date", "Montant_rev", "Montant_bo",
-                "Description", "Libelle","Invoice","ExperienceDate", "Payer",
+                "Description", "Libelle", "Invoice", "ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome","NumCompta"
+                "email", "email_binome", "NumCompta"
             ]
-            df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]]
-            edited_sm = display_interactive_table(df_sm_view, "sm")
+            df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]].copy()
+            df_sm_view.insert(0, "Statut", "✅ Valide + modif CRM")
 
+            edited_sm = st.data_editor(
+                df_sm_view,
+                column_config={
+                    "Statut": st.column_config.SelectboxColumn(
+                        "Statut",
+                        options=["✅ Valide + modif CRM", "🔒 Valide sans modif CRM", "❌ KO"],
+                        required=True,
+                    ),
+                    "idx_rev": None,
+                    "idx_bo": None,
+                    "Date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                    "Montant_rev": st.column_config.NumberColumn("Montant Rev", format="%.2f €"),
+                    "Montant_bo": st.column_config.NumberColumn("Montant BO", format="%.2f €"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                key="editor_sm",
+                disabled=[c for c in df_sm_view.columns if c != "Statut"]
+            )
 
         with st.expander(
             f"🧩 Matchs potentiels : même libellé & date proche, à valider ({len(matches_potentiel)})"
@@ -1050,13 +1069,33 @@ def run_interface():
                 "idx_rev", "idx_bo",
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo",
-                "Description", "Libelle","Invoice","ExperienceDate", "Payer",
+                "Description", "Libelle", "Invoice", "ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome","NumCompta"
+                "email", "email_binome", "NumCompta"
             ]
-            df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]]
-            edited_pot = display_interactive_table(df_pot_view, "pot")
+            df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]].copy()
+            df_pot_view.insert(0, "Statut", "✅ Valide + modif CRM")
 
+            edited_pot = st.data_editor(
+                df_pot_view,
+                column_config={
+                    "Statut": st.column_config.SelectboxColumn(
+                        "Statut",
+                        options=["✅ Valide + modif CRM", "🔒 Valide sans modif CRM", "❌ KO"],
+                        required=True,
+                    ),
+                    "idx_rev": None,
+                    "idx_bo": None,
+                    "Date_rev": st.column_config.DateColumn("Date Revolut", format="DD/MM/YYYY"),
+                    "Date_bo": st.column_config.DateColumn("Date BO", format="DD/MM/YYYY"),
+                    "Montant_rev": st.column_config.NumberColumn("Montant Rev", format="%.2f €"),
+                    "Montant_bo": st.column_config.NumberColumn("Montant BO", format="%.2f €"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                key="editor_pot",
+                disabled=[c for c in df_pot_view.columns if c != "Statut"]
+            )
 
         st.markdown("---")
 
@@ -1116,7 +1155,8 @@ def run_interface():
 
 
 
-            all_edited = [edited_ok, edited_sl, edited_sd,edited_pot_sans_conversion, edited_sm, edited_pot]
+            all_edited = [edited_ok, edited_sl, edited_sd, edited_pot_sans_conversion]
+            # edited_sm et edited_pot sont gérés séparément via leur colonne "Statut"
             
 
             def _get_invoice_col(df):
@@ -1184,52 +1224,62 @@ def run_interface():
 
 
             # 5ème tableau: edited_sm -> montant = Montant_rev
-            if edited_sm is not None and not edited_sm.empty and "Valide" in edited_sm.columns:
+            if edited_sm is not None and not edited_sm.empty and "Statut" in edited_sm.columns:
                 inv_col = _get_invoice_col(edited_sm)
                 if inv_col:
-                    accepted = edited_sm[edited_sm["Valide"] == True].copy()
-                    for _, r in accepted.iterrows():
+                    for _, r in edited_sm.iterrows():
+                        statut = r.get("Statut", "✅ Valide + modif CRM")
                         inv = str(r.get(inv_col, "")).strip()
                         amt = r.get("Montant_rev")
-                        # endpoint amount demande une date -> on prend Date si dispo sinon Date_rev
-                        date_iso = _safe_iso_date(r.get("Date") if "Date" in accepted.columns else r.get("Date_rev"))
-                        if inv and pd.notna(amt) and date_iso:
-                            status, body = crm_update_amount(inv, float(amt), date_iso)
-                            api_logs.append(
-                                f"💰 CRM montant — numéro de piece {inv} → {amt} "
-                                f"(HTTP {status}) | {body}"
-                            )
+                        date_iso = _safe_iso_date(r.get("Date") if "Date" in edited_sm.columns else r.get("Date_rev"))
+
+                        if statut == "✅ Valide + modif CRM":
+                            if inv and pd.notna(amt) and date_iso:
+                                status, body = crm_update_amount(inv, float(amt), date_iso)
+                                api_logs.append(
+                                    f"💰 CRM montant — numéro de piece {inv} → {amt} "
+                                    f"(HTTP {status}) | {body}"
+                                )
+                        elif statut == "🔒 Valide sans modif CRM":
+                            pass  # match accepté, rien à envoyer au CRM
+                        elif statut == "❌ KO":
+                            if "idx_rev" in edited_sm.columns:
+                                rejected_rev_ids.extend([r["idx_rev"]])
+                            if "idx_bo" in edited_sm.columns:
+                                rejected_bo_ids.extend([r["idx_bo"]])
 
 
 
             # 6ème tableau: edited_pot -> montant + date (Montant_rev + Date_rev)
-            if edited_pot is not None and not edited_pot.empty and "Valide" in edited_pot.columns:
+            if edited_pot is not None and not edited_pot.empty and "Statut" in edited_pot.columns:
                 inv_col = _get_invoice_col(edited_pot)
                 if inv_col:
-                    accepted = edited_pot[edited_pot["Valide"] == True].copy()
-                    for _, r in accepted.iterrows():
+                    for _, r in edited_pot.iterrows():
+                        statut = r.get("Statut", "✅ Valide + modif CRM")
                         inv = str(r.get(inv_col, "")).strip()
                         amt = r.get("Montant_rev")
                         current_date = _safe_iso_date(r.get("Date_bo"))
                         new_date = _safe_iso_date(r.get("Date_rev"))
+                        date_iso = _safe_iso_date(r.get("Date_rev") if "Date_rev" in edited_pot.columns else r.get("Date_bo"))
 
-                        if inv and current_date and new_date:
-                            status, body = crm_update_date(inv, current_date, new_date)
-                            api_logs.append(
-                                f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}"
-                            )
-
-
-                        # endpoint amount demande une date -> on prend Date_rev si dispo, sinon Date_bo
-                        date_iso = _safe_iso_date(r.get("Date_rev") if "Date_rev" in accepted.columns else r.get("Date_bo"))
-
-                        if inv and pd.notna(amt) and date_iso:
-                            status, body = crm_update_amount(inv, float(amt), date_iso)
-                            api_logs.append(
-                                f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}"
-                            )
-
-
+                        if statut == "✅ Valide + modif CRM":
+                            if inv and current_date and new_date:
+                                status, body = crm_update_date(inv, current_date, new_date)
+                                api_logs.append(
+                                    f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}"
+                                )
+                            if inv and pd.notna(amt) and date_iso:
+                                status, body = crm_update_amount(inv, float(amt), date_iso)
+                                api_logs.append(
+                                    f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}"
+                                )
+                        elif statut == "🔒 Valide sans modif CRM":
+                            pass  # match accepté, rien à envoyer au CRM
+                        elif statut == "❌ KO":
+                            if "idx_rev" in edited_pot.columns:
+                                rejected_rev_ids.extend([r["idx_rev"]])
+                            if "idx_bo" in edited_pot.columns:
+                                rejected_bo_ids.extend([r["idx_bo"]])
 
 
             def _is_no_invoice(s):
