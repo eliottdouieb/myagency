@@ -838,14 +838,22 @@ def run_interface():
         st.session_state["df_bo_clean"] = df_bo_clean
 
     # Chargement du carryover depuis Google Sheets
-    df_carry = load_carryover_from_sheet()
-    if not df_carry.empty:
-        st.info(f"♻️ {len(df_carry)} dépenses BO du mois précédent chargées depuis Google Sheets.")
-        max_idx = df_bo_clean["idx_bo"].max() + 1
-        df_carry["idx_bo"] = range(int(max_idx), int(max_idx) + len(df_carry))
-        df_bo_clean = pd.concat([df_bo_clean, df_carry], ignore_index=True)
-        st.session_state["df_bo_clean"] = df_bo_clean
-        st.session_state["bo_carryover"] = df_carry
+    if "carryover_injected" not in st.session_state:
+        df_carry = load_carryover_from_sheet()
+        if not df_carry.empty and "Payer" in df_carry.columns:
+            # On garde uniquement les Payer présents dans le Revolut chargé
+            payers_revolut_courant = set(df_rev_clean["Payer"].dropna().unique())
+            df_carry_filtre = df_carry[df_carry["Payer"].isin(payers_revolut_courant)].copy()
+
+            if not df_carry_filtre.empty:
+                st.info(f"♻️ {len(df_carry_filtre)} dépenses BO du mois précédent réinjectées pour : {', '.join(payers_revolut_courant)}")
+                max_idx = df_bo_clean["idx_bo"].max() + 1
+                df_carry_filtre["idx_bo"] = range(int(max_idx), int(max_idx) + len(df_carry_filtre))
+                df_bo_clean = pd.concat([df_bo_clean, df_carry_filtre], ignore_index=True)
+                st.session_state["df_bo_clean"] = df_bo_clean
+                st.session_state["bo_carryover"] = df_carry_filtre
+
+        st.session_state["carryover_injected"] = True
 
     # 3. Matching (Calcul initial)
     used_rev = set()
