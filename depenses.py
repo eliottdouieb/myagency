@@ -1117,6 +1117,13 @@ def run_interface():
             st.session_state["crm_api_logs_ko"] = []
             api_logs = st.session_state["crm_api_logs_ko"]
 
+            # ✅ Déclaration anticipée pour éviter UnboundLocalError
+            rejected_rev_ids = []
+            rejected_bo_ids = []
+            noinv_parts = []
+            noinv_rev_ids = []
+            noinv_bo_ids = []
+
 
             def normalize_no_invoice_df(df: pd.DataFrame) -> pd.DataFrame:
                 if df is None or df.empty:
@@ -1287,14 +1294,6 @@ def run_interface():
                 s = s.astype(str).str.strip().str.lower()
                 return (s != "yes") & (s != "") & (s != "nan")
 
-            noinv_parts = []
-            noinv_rev_ids = []
-            noinv_bo_ids = []
-
-
-            rejected_rev_ids = []
-            rejected_bo_ids = []
-
             for df in all_edited:
                 if not df.empty and "Valide" in df.columns:
                     rejected = df[df["Valide"] == False]
@@ -1424,7 +1423,7 @@ def run_interface():
           **tous les matins à 8h** un email aux concierges et a leur binomes avec les **dépenses incomplètes ou inexistantes**
           à ajouter dans le Back Office.
         - Le **suivi des relances** et des **dépenses à traiter** se trouve dans ce Google Sheet :  
-          👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1ajBDscFnvEez97iu5fDL7rZe9VI3bH9yHs-oXfDpE_I)
+          👉 [Suivi des relances et dépenses incomplètes](https://docs.google.com/spreadsheets/d/1YTjkOrBecnD76QVr2COePkb_FKL3Aqx5xASiVWMnQys/edit?gid=0#gid=0)
         """
     )
 
