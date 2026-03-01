@@ -1540,3 +1540,96 @@ def run_interface():
 
     # elif not uploaded_revolut:
     # st.info("Veuillez commencer par chargeeeeer le fichier Revolut ci-dessus."))
+
+    with tab6:
+        st.header("📦 Export vers Sage")
+
+        st.info(
+            "Ce fichier contient toutes les lignes Revolut formatées pour Sage. "
+            "La colonne **Compte compta** est remplie uniquement pour les lignes matchées et validées."
+        )
+
+        # =========================
+        # Construction du mapping idx_rev -> Compte (depuis tous les matches validés)
+        # =========================
+
+        compte_map = {}  # idx_rev -> Compte
+
+        # Tous les tableaux avec colonne "Valide" (checkbox)
+        for df_match in [matches_ok, matches_sans_libelle, matches_sans_date, matches_potentiel_sans_conversion]:
+            if df_match is not None and not df_match.empty and "Compte" in df_match.columns and "idx_rev" in df_match.columns:
+                for _, r in df_match.iterrows():
+                    idx = r.get("idx_rev")
+                    compte = r.get("Compte", "")
+                    if pd.notna(idx) and pd.notna(compte) and str(compte).strip():
+                        compte_map[idx] = str(compte).strip()
+
+        # Tableaux avec colonne "Statut" (selectbox) — on prend ceux qui ne sont pas KO
+        for df_match in [matches_sans_montant, matches_potentiel]:
+            if df_match is not None and not df_match.empty and "Compte" in df_match.columns and "idx_rev" in df_match.columns:
+                for _, r in df_match.iterrows():
+                    idx = r.get("idx_rev")
+                    compte = r.get("Compte", "")
+                    statut = r.get("Statut", "✅ Valide + modif CRM")
+                    if statut != "❌ KO" and pd.notna(idx) and pd.notna(compte) and str(compte).strip():
+                        compte_map[idx] = str(compte).strip()
+
+        # =========================
+        # Construction du DataFrame Sage
+        # =========================
+
+        df_sage_source = df_rev_raw.copy()
+
+        # Format date DD/MM/YYYY
+        df_sage_source["_date_completed"] = pd.to_datetime(
+            df_sage_source["Date completed (UTC)"], errors="coerce"
+        ).dt.strftime("%d/%m/%Y")
+
+        # idx_rev pour le mapping compte (basé sur l'index du CSV original filtré dans clean_dataframes)
+        # On recrée l'index propre
+        df_sage_source = df_sage_source.reset_index().rename(columns={"index": "idx_rev"})
+
+        # Colonne 7 : Total amount négatif → positif
+        def col_debit(val):
+            try:
+                v = float(val)
+                return round(abs(v), 2) if v < 0 else ""
+            except:
+                return ""
+
+        # Colonne 8 : Total amount positif → tel quel
+        def col_credit(val):
+            try:
+                v = float(val)
+                return round(v, 2) if v > 0 else ""
+            except:
+                return ""
+
+        df_sage = pd.DataFrame({
+            "Col1":         "BQ7",
+            "Date":         df_sage_source["_date_completed"],
+            "Payer":        df_sage_source["Payer"],
+            "Col4":         "401000",
+            "Compte":       df_sage_source["idx_rev"].map(lambda x: compte_map.get(x, "")),
+            "Description":  df_sage_source["Description"],
+            "Debit":        df_sage_source["Total amount"].map(col_debit),
+            "Credit":       df_sage_source["Total amount"].map(col_credit),
+        })
+
+        st.dataframe(df_sage, use_container_width=True, hide_index=True)
+
+        # =========================
+        # Bouton téléchargement Excel
+        # =========================
+
+        import io
+        buffer_sage = io.BytesIO()
+        with pd.ExcelWriter(buffer_sage, engine="xlsxwriter") as writer:
+            df_sage.to_excel(writer, index=False, header=False, sheet_name="Sage")
+
+        st.download_button(
+            label="📥 Télécharger le fichier Excel pour Sage",
+            data=buffer_sage.getvalue(),
+            file_name="export_sage.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
