@@ -508,6 +508,63 @@ def run_api_crm(num_de_piece,value,date):
             "message": "Erreur de traitement ou JSON invalide",
             "success": False,
         }
+    
+
+def save_carryover_to_sheet(df):
+    try:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        gc = gspread.service_account_from_dict(creds_dict)
+        sh = gc.open(sheet_name)
+
+        try:
+            ws = sh.worksheet("Carryover")
+            ws.clear()
+        except:
+            ws = sh.add_worksheet(title="Carryover", rows=500, cols=20)
+
+        df_export = df.copy()
+        # Convertir les dates en string pour éviter les erreurs gspread
+        for col in df_export.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
+            df_export[col] = df_export[col].dt.strftime("%Y-%m-%d")
+        df_export = df_export.fillna("").astype(str)
+
+        ws.update([df_export.columns.tolist()] + df_export.values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"Erreur sauvegarde Carryover : {e}")
+        return False
+
+
+def load_carryover_from_sheet():
+    try:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        gc = gspread.service_account_from_dict(creds_dict)
+        sh = gc.open(sheet_name)
+        ws = sh.worksheet("Carryover")
+        data = ws.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            if "Date" in df.columns:
+                df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+            if "Montant" in df.columns:
+                df["Montant"] = pd.to_numeric(df["Montant"], errors="coerce")
+            return df
+    except:
+        pass
+    return pd.DataFrame()
+
+
+def clear_carryover_from_sheet():
+    try:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        gc = gspread.service_account_from_dict(creds_dict)
+        sh = gc.open(sheet_name)
+        ws = sh.worksheet("Carryover")
+        ws.clear()
+        return True
+    except Exception as e:
+        st.error(f"Erreur suppression Carryover : {e}")
+        return False
 # @st.cache_data(show_spinner=False, ttl=1800)
 
 
@@ -780,6 +837,16 @@ def run_interface():
         st.session_state["df_rev_clean"] = df_rev_clean
         st.session_state["df_bo_clean"] = df_bo_clean
 
+    # Chargement du carryover depuis Google Sheets
+    df_carry = load_carryover_from_sheet()
+    if not df_carry.empty:
+        st.info(f"♻️ {len(df_carry)} dépenses BO du mois précédent chargées depuis Google Sheets.")
+        max_idx = df_bo_clean["idx_bo"].max() + 1
+        df_carry["idx_bo"] = range(int(max_idx), int(max_idx) + len(df_carry))
+        df_bo_clean = pd.concat([df_bo_clean, df_carry], ignore_index=True)
+        st.session_state["df_bo_clean"] = df_bo_clean
+        st.session_state["bo_carryover"] = df_carry
+
     # 3. Matching (Calcul initial)
     used_rev = set()
     used_bo = set()
@@ -955,7 +1022,8 @@ def run_interface():
     "⚠️ KO BackOffice",
     "🧾 Dépenses OK sans facture",
     "📤 Relances des dépenses",
-    "📦 Export vers Sage"
+    "📦 Export vers Sage",
+    "🗂️ Mémoire inter-mois"
 ])
 
 
@@ -1633,3 +1701,114 @@ def run_interface():
             file_name="export_sage.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+    with tab7:
+        st.header("🗂️ Mémoire inter-mois — KO BackOffice de fin de mois")
+
+        st.info(
+            "Certaines dépenses BackOffice de fin de mois (à partir du **25**) n'ont pas trouvé de match "
+            "car la dépense Revolut correspondante a eu lieu le mois suivant. "
+            "Vous pouvez les mettre en mémoire ici pour qu'elles participent au matching du mois prochain."
+        )
+
+        # =========================
+        # Affichage des KO BO de fin de mois (>= 25)
+        # =========================
+
+        df_ko_bo = st.session_state.get("ko_bo_final", pd.DataFrame()).copy()
+
+        if df_ko_bo.empty:
+            st.warning("Aucun KO BackOffice disponible. Lancez d'abord le matching.")
+        else:
+            df_ko_bo["Date"] = pd.to_datetime(df_ko_bo["Date"], errors="coerce")
+            df_fin_mois = df_ko_bo[df_ko_bo["Date"].dt.day >= 25].copy()
+
+            if df_fin_mois.empty:
+                st.warning("Aucun KO BackOffice avec une date >= 25 du mois.")
+            else:
+                st.markdown(f"**{len(df_fin_mois)} dépenses BO de fin de mois détectées :**")
+
+                cols_affich = [c for c in [
+                    "Date", "Montant", "Libelle", "Payer", "Compte", "NumCompta", "idx_bo"
+                ] if c in df_fin_mois.columns]
+
+                df_fin_mois_view = df_fin_mois[cols_affich].copy()
+                df_fin_mois_view.insert(0, "Mémoriser", True)
+
+                edited_carryover = st.data_editor(
+                    df_fin_mois_view,
+                    column_config={
+                        "Mémoriser": st.column_config.CheckboxColumn(
+                            "Mémoriser ?",
+                            help="Cochez pour inclure cette dépense dans le matching du mois prochain",
+                            default=True,
+                        ),
+                        "idx_bo": None,
+                        "Date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                        "Montant": st.column_config.NumberColumn("Montant", format="%.2f €"),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_carryover",
+                    disabled=[c for c in df_fin_mois_view.columns if c != "Mémoriser"]
+                )
+
+                col_btn1, col_btn2 = st.columns(2)
+
+                with col_btn1:
+                    if st.button("💾 Mettre en mémoire les dépenses sélectionnées"):
+                        lignes_selectionnees = edited_carryover[edited_carryover["Mémoriser"] == True]
+
+                        if lignes_selectionnees.empty:
+                            st.warning("Aucune ligne sélectionnée.")
+                        else:
+                            idx_bo_selectionnes = df_fin_mois[
+                                df_fin_mois.index.isin(lignes_selectionnees.index)
+                            ]["idx_bo"].tolist()
+
+                            df_a_memoriser = df_ko_bo[
+                                df_ko_bo["idx_bo"].isin(idx_bo_selectionnes)
+                            ].copy()
+
+                            # Filtre : uniquement les Payer présents dans le Revolut courant
+                            payers_revolut = set(df_rev_clean["Payer"].dropna().unique())
+                            if "Payer" in df_a_memoriser.columns:
+                                df_a_memoriser = df_a_memoriser[
+                                    df_a_memoriser["Payer"].isin(payers_revolut)
+                                ]
+
+                            if df_a_memoriser.empty:
+                                st.warning("Aucune dépense avec un Payer correspondant au Revolut courant.")
+                            elif save_carryover_to_sheet(df_a_memoriser):
+                                st.session_state["bo_carryover"] = df_a_memoriser
+                                st.success(
+                                    f"✅ {len(df_a_memoriser)} dépenses sauvegardées dans Google Sheets "
+                                    f"pour le matching du mois prochain."
+                                )
+
+                with col_btn2:
+                    if st.button("🗑️ Vider la mémoire inter-mois"):
+                        if clear_carryover_from_sheet():
+                            st.session_state.pop("bo_carryover", None)
+                            st.success("🗑️ Mémoire vidée.")
+                            st.rerun()
+
+        # =========================
+        # Affichage de ce qui est actuellement en mémoire (Google Sheets)
+        # =========================
+        st.markdown("---")
+        st.subheader("📋 Dépenses actuellement en mémoire")
+
+        df_mem = load_carryover_from_sheet()
+
+        if df_mem.empty:
+            st.info("Aucune dépense en mémoire pour le moment.")
+        else:
+            st.success(
+                f"**{len(df_mem)} dépenses** en mémoire — elles seront automatiquement "
+                f"incluses dans le prochain matching."
+            )
+            cols_mem = [c for c in [
+                "Date", "Montant", "Libelle", "Payer", "Compte", "NumCompta"
+            ] if c in df_mem.columns]
+            st.dataframe(df_mem[cols_mem], use_container_width=True, hide_index=True)    
