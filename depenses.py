@@ -72,7 +72,15 @@ mail_mapping = {
         "mail": "fabrice@myagency.group",
         "mail_binome": "coline@myagency.group"
     },
+    "CB Fab": {
+        "mail": "fabrice@myagency.group",
+        "mail_binome": "coline@myagency.group"
+    },
     "Lara Dogliotti": {
+        "mail": "lara@myagency.group",
+        "mail_binome": "sofia@myagency.group"
+    },
+    "CB LARA": {
         "mail": "lara@myagency.group",
         "mail_binome": "sofia@myagency.group"
     },
@@ -84,11 +92,23 @@ mail_mapping = {
         "mail": "mathildea@myagency.group",
         "mail_binome": None
     },
+    "CB MAthilde A": {
+        "mail": "mathildea@myagency.group",
+        "mail_binome": None
+    },
     "Nourithe Guila Serraf": {
         "mail": "nourithe@myagency.group",
         "mail_binome": "alina@myagency.group"
     },
+    "CB Nourithe": {
+        "mail": "nourithe@myagency.group",
+        "mail_binome": "alina@myagency.group"
+    },
     "Pierre Olivier Marie Fallourd": {
+        "mail": "pierref@myagency.group",
+        "mail_binome": "anouchka@myagency.group"
+    },
+    "CB Pierre F": {
         "mail": "pierref@myagency.group",
         "mail_binome": "anouchka@myagency.group"
     },
@@ -100,11 +120,19 @@ mail_mapping = {
         "mail": "thalia@myagency.group",
         "mail_binome": "corporate@myagency.group"
     },
+    "CB COrporate": {
+        "mail": "thalia@myagency.group",
+        "mail_binome": "corporate@myagency.group"
+    },
     "Vialina Glimnurova": {
         "mail": "vialina@myagency.group",
         "mail_binome": "alexandra@myagency.group"
     },
     "Yves Sauveur Abitbol": {
+        "mail": "yves@myagency.group",
+        "mail_binome": 'sofia@myagency.group'
+    },
+    "Cashback Yves": {
         "mail": "yves@myagency.group",
         "mail_binome": 'sofia@myagency.group'
     },
@@ -122,6 +150,14 @@ mail_mapping = {
 @st.cache_data
 def load_data(revolut_file, bo_file):
     df_rev = pd.read_csv(revolut_file)
+
+    cashback_labels = [
+    "CB LARA", "CB MAthilde A", "CB Fab", "CB Nourithe",
+    "CB Pierre F", "Cashback Yves", "CB COrporate"
+    ]
+    mask = df_rev["Card label"].isin(cashback_labels)
+    df_rev.loc[mask, ["Payer", "Card label"]] = df_rev.loc[mask, ["Card label", "Payer"]].values
+
     df_rev['email'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail"))
     df_rev['email_binome'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail_binome"))
 
