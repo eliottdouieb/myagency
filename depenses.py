@@ -1737,7 +1737,7 @@ def run_interface():
                 st.markdown(f"**{len(df_fin_mois)} dépenses BO de fin de mois détectées :**")
 
                 cols_affich = [c for c in [
-                    "Date", "Montant", "Libelle", "Payer", "Compte", "NumCompta", "idx_bo"
+                    "Date", "Montant", "Libelle", "Compte", "NumCompta", "idx_bo"
                 ] if c in df_fin_mois.columns]
 
                 df_fin_mois_view = df_fin_mois[cols_affich].copy()
@@ -1778,20 +1778,32 @@ def run_interface():
                                 df_ko_bo["idx_bo"].isin(idx_bo_selectionnes)
                             ].copy()
 
-                            # Filtre : uniquement les Payer présents dans le Revolut courant
-                            payers_revolut = set(df_rev_clean["Payer"].dropna().unique())
-                            if "Payer" in df_a_memoriser.columns:
-                                df_a_memoriser = df_a_memoriser[
-                                    df_a_memoriser["Payer"].isin(payers_revolut)
-                                ]
+                            # ✅ Extraction du Payer depuis le Libelle
+                            def extraire_payer_depuis_libelle(libelle):
+                                for nom in mail_mapping.keys():
+                                    prenom = nom.split()[0]
+                                    if prenom.lower() in str(libelle).lower():
+                                        return nom
+                                return ""
 
-                            if df_a_memoriser.empty:
-                                st.warning("Aucune dépense avec un Payer correspondant au Revolut courant.")
+                            df_a_memoriser["Payer"] = df_a_memoriser["Libelle"].apply(
+                                extraire_payer_depuis_libelle
+                            )
+
+                            # Log temporaire pour vérification
+                            payers_trouves = [p for p in df_a_memoriser["Payer"].unique().tolist() if p]
+                            st.write(f"Payers détectés : {payers_trouves}")
+
+                            if df_a_memoriser["Payer"].eq("").all():
+                                st.warning(
+                                    "Aucun concierge détecté dans les libellés. "
+                                    "Vérifiez les libellés BO."
+                                )
                             elif save_carryover_to_sheet(df_a_memoriser):
                                 st.session_state["bo_carryover"] = df_a_memoriser
                                 st.success(
-                                    f"✅ {len(df_a_memoriser)} dépenses sauvegardées dans Google Sheets "
-                                    f"pour le matching du mois prochain."
+                                    f"✅ {len(df_a_memoriser)} dépenses sauvegardées pour : "
+                                    f"{', '.join(payers_trouves)}"
                                 )
 
                 with col_btn2:
@@ -1819,4 +1831,4 @@ def run_interface():
             cols_mem = [c for c in [
                 "Date", "Montant", "Libelle", "Payer", "Compte", "NumCompta"
             ] if c in df_mem.columns]
-            st.dataframe(df_mem[cols_mem], use_container_width=True, hide_index=True)    
+            st.dataframe(df_mem[cols_mem], use_container_width=True, hide_index=True)
