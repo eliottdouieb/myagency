@@ -518,22 +518,34 @@ def save_carryover_to_sheet(df):
 
         try:
             ws = sh.worksheet("Carryover")
-            ws.clear()
         except:
             ws = sh.add_worksheet(title="Carryover", rows=500, cols=20)
 
-        df_export = df.copy()
-        # Convertir les dates en string pour éviter les erreurs gspread
-        for col in df_export.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
-            df_export[col] = df_export[col].dt.strftime("%Y-%m-%d")
-        df_export = df_export.fillna("").astype(str)
+        # Préparer les nouvelles lignes
+        df_new = df.copy()
+        for col in df_new.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
+            df_new[col] = df_new[col].dt.strftime("%Y-%m-%d")
+        df_new = df_new.fillna("").astype(str)
 
-        ws.update([df_export.columns.tolist()] + df_export.values.tolist())
+        # Lire ce qui existe déjà dans le sheet
+        existing_data = ws.get_all_records()
+
+        if existing_data:
+            df_existing = pd.DataFrame(existing_data).astype(str)
+            # Fusionner ancien + nouveau et dédoublonner sur Libelle + Date
+            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+            df_combined = df_combined.drop_duplicates(subset=["Libelle", "Date"], keep="last")
+        else:
+            df_combined = df_new
+
+        # Réécrire tout
+        ws.clear()
+        ws.update([df_combined.columns.tolist()] + df_combined.values.tolist())
         return True
+
     except Exception as e:
         st.error(f"Erreur sauvegarde Carryover : {e}")
         return False
-
 
 def load_carryover_from_sheet():
     try:
