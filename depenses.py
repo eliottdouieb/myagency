@@ -521,24 +521,32 @@ def save_carryover_to_sheet(df):
         except:
             ws = sh.add_worksheet(title="Carryover", rows=500, cols=20)
 
-        # Préparer les nouvelles lignes
         df_new = df.copy()
         for col in df_new.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns:
             df_new[col] = df_new[col].dt.strftime("%Y-%m-%d")
         df_new = df_new.fillna("").astype(str)
 
-        # Lire ce qui existe déjà dans le sheet
+        # ✅ Clé composite stable : Libelle + Date + Montant
+        def make_dedup_key(df):
+            return (
+                df["Libelle"].str.strip()
+                + "|"
+                + df["Date"].astype(str).str.strip()
+                + "|"
+                + df["Montant"].astype(str).str.strip()
+            )
+
         existing_data = ws.get_all_records()
 
         if existing_data:
             df_existing = pd.DataFrame(existing_data).astype(str)
-            # Fusionner ancien + nouveau et dédoublonner sur Libelle + Date
             df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-            df_combined = df_combined.drop_duplicates(subset=["Libelle", "Date"], keep="last")
+            df_combined["_dedup_key"] = make_dedup_key(df_combined)
+            df_combined = df_combined.drop_duplicates(subset=["_dedup_key"], keep="last")
+            df_combined = df_combined.drop(columns=["_dedup_key"])
         else:
             df_combined = df_new
 
-        # Réécrire tout
         ws.clear()
         ws.update([df_combined.columns.tolist()] + df_combined.values.tolist())
         return True
