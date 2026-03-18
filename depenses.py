@@ -275,15 +275,20 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     # BO
     df_bo_clean = df_bo.copy()
     df_bo_clean["Date"] = pd.to_datetime(df_bo_clean["Date"], errors="coerce")
-    df_bo_clean["Montant"] = df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]
+    # On ne garde que les lignes du compte de trésorerie (511xxx)
+    df_bo_clean = df_bo_clean[df_bo_clean["Compte"].astype(str).str.startswith("511")]
+    # Valeur absolue pour gérer les lignes avec Débit/Crédit inversés
+    df_bo_clean["Montant"] = (df_bo_clean["Débit(€)"] - df_bo_clean["Crédit (€)"]).abs()
     df_bo_clean = df_bo_clean[df_bo_clean["Montant"] > 0]
     df_bo_clean = df_bo_clean.reset_index().rename(columns={"index": "idx_bo"})
 
     # Revolut
     df_rev_clean = df_rev.copy()
-    df_rev_clean = df_rev_clean[df_rev_clean["Type"] == "CARD_PAYMENT"]
+    # On inclut CARD_PAYMENT et REFUND
+    df_rev_clean = df_rev_clean[df_rev_clean["Type"].isin(["CARD_PAYMENT", "REFUND"])]
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
-    df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"] * (-1), errors="coerce")
+    # Valeur absolue pour gérer les remboursements (Total amount positif)
+    df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"], errors="coerce").abs()
 
     cols_rev_keep = [
         "Date", "Montant", "Description", "ID", "Type", "State",
@@ -296,6 +301,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     df_rev_clean = df_rev_clean.reset_index().rename(columns={"index": "idx_rev"})
 
     return df_rev_clean, df_bo_clean
+
 
 # Fonction Helper pour afficher les data_editor proprement
 def display_interactive_table(df, key_suffix):
