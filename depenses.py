@@ -285,7 +285,7 @@ def clean_dataframes(df_rev, df_bo, match_libelle):
     # Revolut
     df_rev_clean = df_rev.copy()
     # On inclut CARD_PAYMENT et REFUND
-    df_rev_clean = df_rev_clean[df_rev_clean["Type"].isin(["CARD_PAYMENT", "REFUND"])]
+    df_rev_clean = df_rev_clean[df_rev_clean["Type"].isin(["CARD_PAYMENT", "REFUND", "CARD_REFUND"])]
     df_rev_clean["Date"] = pd.to_datetime(df_rev_clean["Date started (UTC)"], errors="coerce")
     # Valeur absolue pour gérer les remboursements (Total amount positif)
     df_rev_clean["Montant"] = pd.to_numeric(df_rev_clean["Total amount"], errors="coerce").abs()
