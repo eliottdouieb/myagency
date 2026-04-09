@@ -89,12 +89,12 @@ mail_mapping = {
         "mail_binome": "julie@myagency.group"
     },
     "Mathile Severine Alonso": {
-        "mail": "mathildea@myagency.group",
-        "mail_binome": None
+        "mail": "mathilde@myagency.group",
+        "mail_binome": "julie@myagency.group"
     },
     "CB MAthilde A": {
-        "mail": "mathildea@myagency.group",
-        "mail_binome": None
+        "mail": "mathilde@myagency.group",
+        "mail_binome": "julie@myagency.group"
     },
     "Nourithe Guila Serraf": {
         "mail": "nourithe@myagency.group",
