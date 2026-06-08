@@ -797,13 +797,39 @@ def run_interface():
     st.markdown("---")
 
     # st.dataframe(st.session_state["df_bo_raw"])
-    revolut_labels = sorted(df_rev_raw["Description"].dropna().unique().tolist())
 
-    if "Libelle" in df_bo_raw.columns:
-        backoffice_labels = sorted(df_bo_raw["Libelle"].dropna().unique().tolist())
-    else:
+    if "Libelle" not in df_bo_raw.columns:
         st.error("Colonne 'Libelle' introuvable dans le fichier BackOffice.")
         st.stop()
+
+    # ============================================================
+    # ⚡ L'analyse IA ne sert qu'au matching CLASSIQUE (fallback),
+    #    donc uniquement aux lignes SANS identifiant de transaction.
+    #    Les lignes avec dTransactionId != 0 sont déjà matchées par l'ID
+    #    -> on les exclut du mapping IA (gain de tokens + zéro faux mapping).
+    # ============================================================
+
+    # Ensemble des identifiants de transaction présents côté BO (dTransactionId != 0)
+    if "BoTxnId" in df_bo_raw.columns:
+        bo_txn_ids = set(df_bo_raw.loc[df_bo_raw["BoTxnId"] != "", "BoTxnId"].dropna().unique())
+        # Libellés BO uniquement pour les lignes SANS ID (dTransactionId = 0)
+        df_bo_for_ai = df_bo_raw[df_bo_raw["BoTxnId"] == ""]
+    else:
+        bo_txn_ids = set()
+        df_bo_for_ai = df_bo_raw
+
+    backoffice_labels = sorted(df_bo_for_ai["Libelle"].dropna().unique().tolist())
+
+    # Côté Revolut : on garde les descriptions des lignes qui NE matcheront PAS par ID
+    # (pas d'ID, ou ID absent du BO).
+    if "RevTxnId" in df_rev_raw.columns:
+        rev_no_id_match = df_rev_raw[
+            (df_rev_raw["RevTxnId"] == "") | (~df_rev_raw["RevTxnId"].isin(bo_txn_ids))
+        ]
+    else:
+        rev_no_id_match = df_rev_raw
+
+    revolut_labels = sorted(rev_no_id_match["Description"].dropna().unique().tolist())
 
     # =========================
     # Gestion du state
