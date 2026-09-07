@@ -62,32 +62,91 @@ def get_conversion_rate_frankfurter(date: str, from_currency: str, to_currency: 
         return False
 
         
-def run_api_crm(invoice,value,date):
-    BASE_URL = st.secrets["crm"]["base_url"]
-    AUTH_URL = f"{BASE_URL}/api/appMember/concierge/login"
-    ACCOUNTING_URL_TMPL = f"{BASE_URL}/api/myagency/controller/accounting/{{ConciergeHash}}"
+class CrmAuthError(RuntimeError):
+    """Échec d'authentification au CRM, avec le code HTTP quand il est connu."""
 
-    EMAIL = st.secrets["crm"]["email"]
-    PASSWORD =st.secrets["crm"]["password"]
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
+
+def crm_login():
+    """Authentifie UNE seule fois auprès du CRM et renvoie (ConciergeHash, ApiToken).
+
+    Le jeton est mémorisé dans st.session_state : l'endpoint de login est protégé
+    contre le brute-force et renvoie 429/403 au bout de quelques tentatives
+    rapprochées. Ne jamais rappeler cette fonction dans une boucle ligne à ligne.
+    """
+    cached = st.session_state.get("crm_auth")
+    if cached and (time.time() - cached["ts"]) < 900:
+        return cached["hash"], cached["token"]
+
+    try:
+        BASE_URL = st.secrets["crm"]["base_url"]
+        EMAIL = st.secrets["crm"]["email"]
+        PASSWORD = st.secrets["crm"]["password"]
+    except KeyError as e:
+        raise CrmAuthError(f"Secret CRM manquant : {e}. Vérifier les Secrets de l'app Streamlit.")
     if not PASSWORD:
-        raise RuntimeError("Missing CRM_PASSWORD. …")
-        
-    auth_payload = {"email": EMAIL, "password": PASSWORD}
-    auth_resp = requests.post(AUTH_URL, json=auth_payload, timeout=30)
-    auth_resp.raise_for_status()
+        raise CrmAuthError("Mot de passe CRM vide dans les Secrets.")
+
+    try:
+        auth_resp = requests.post(
+            f"{BASE_URL}/api/appMember/concierge/login",
+            json={"email": EMAIL, "password": PASSWORD},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        raise CrmAuthError(f"CRM injoignable : {e}")
+
+    if not auth_resp.ok:
+        raise CrmAuthError(
+            f"HTTP {auth_resp.status_code} sur le login — {auth_resp.text[:300]}",
+            status=auth_resp.status_code,
+        )
 
     auth_ct = (auth_resp.headers.get("content-type") or "").lower()
     auth_data = auth_resp.json() if "application/json" in auth_ct else {}
     if not auth_data.get("success"):
-        raise RuntimeError(f"Login failed: {auth_data}")
-        
+        raise CrmAuthError(f"Login refusé par le CRM : {auth_data}")
+
     ConciergeHash = str(auth_data.get("ConciergeHash", "")).strip()
     ApiToken = str(auth_data.get("ApiToken", "")).strip()
     if not ConciergeHash or not ApiToken:
-        raise RuntimeError("Missing ConciergeHash or ApiToken in login response.")
-        
+        raise CrmAuthError("ConciergeHash ou ApiToken absent de la réponse de login.")
 
-    url = ACCOUNTING_URL_TMPL.format(ConciergeHash=ConciergeHash)
+    st.session_state["crm_auth"] = {
+        "hash": ConciergeHash,
+        "token": ApiToken,
+        "ts": time.time(),
+    }
+    return ConciergeHash, ApiToken
+
+
+def crm_auth_message(err):
+    """Message lisible pour l'utilisateur final à partir d'une CrmAuthError."""
+    status = getattr(err, "status", None)
+    if status in (401, 403):
+        return (
+            "Connexion au CRM refusée : identifiants invalides ou expirés, ou compte "
+            "temporairement bloqué après trop de tentatives. Réessayez dans quelques "
+            "minutes, ou prévenez l'administrateur."
+        )
+    if status == 429:
+        return "Le CRM a limité le nombre de connexions. Réessayez dans quelques minutes."
+    if status and status >= 500:
+        return f"Le CRM est momentanément indisponible (erreur {status}). Réessayez plus tard."
+    return "Impossible de se connecter au CRM. Réessayez dans quelques minutes."
+
+
+def run_api_crm(invoice, value, date, ConciergeHash, ApiToken):
+    """Met à jour UNE ligne comptable dans le CRM.
+
+    L'authentification est faite en amont par crm_login() et passée en argument :
+    surtout ne pas relancer un login ici, la fonction est appelée en boucle.
+    """
+    BASE_URL = st.secrets["crm"]["base_url"]
+    url = f"{BASE_URL}/api/myagency/controller/accounting/{ConciergeHash}"
 
     payload = {
         "payload": {
@@ -95,7 +154,7 @@ def run_api_crm(invoice,value,date):
             "type": "member",
             "field": "vente",
             "value": value,
-            "date":date
+            "date": date,
         }
     }
 
@@ -104,28 +163,42 @@ def run_api_crm(invoice,value,date):
         "ApiToken": ApiToken,
     }
 
+    resp = None
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=15)
 
-    try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
-        ctype = (resp.headers.get("content-type") or "").lower()
-        json_body = resp.json() if "application/json" in ctype else {}
+            # Jeton rejeté : on invalide le cache pour forcer un relogin au prochain run.
+            if resp.status_code in (401, 403):
+                st.session_state.pop("crm_auth", None)
 
-        return {
-            "status": resp.status_code,
-            "type": "Réponse JSON",
-            "body": json_body,
-            "message": json_body.get("message", "Aucun message"),
-            "success": json_body.get("success", False),
-        }
+            # 429 / 5xx sont transitoires : back-off exponentiel (1s, 2s) puis abandon.
+            if (resp.status_code == 429 or resp.status_code >= 500) and attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
 
-    except Exception as e:
-        return {
-            "status": resp.status_code if 'resp' in locals() else 500,
-            "type": "Réponse brute ou erreur",
-            "body": resp.text if 'resp' in locals() else str(e),
-            "message": "Erreur de traitement ou JSON invalide",
-            "success": False,
-        }
+            ctype = (resp.headers.get("content-type") or "").lower()
+            json_body = resp.json() if "application/json" in ctype else {}
+
+            return {
+                "status": resp.status_code,
+                "type": "Réponse JSON",
+                "body": json_body,
+                "message": json_body.get("message", "Aucun message"),
+                "success": json_body.get("success", False),
+            }
+
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            return {
+                "status": resp.status_code if resp is not None else 500,
+                "type": "Réponse brute ou erreur",
+                "body": resp.text if resp is not None else str(e),
+                "message": "Erreur de traitement ou JSON invalide",
+                "success": False,
+            }
 @st.cache_data(show_spinner=False, ttl=1800)
 
 def safe_read_excel(uploaded, header_row: int = 1) -> pd.DataFrame:
@@ -468,8 +541,15 @@ def run_interface():
                             df.loc[idx, ["Account Client"]] = r[["Account Client"]].values
 
                 with st.spinner("Mise à jour des comptes tiers dans le CRM (seulement les lignes modifiées)…"):
+                    try:
+                        crm_hash, crm_token = crm_login()   # un seul login pour toute la boucle
+                    except CrmAuthError as e:
+                        st.error(crm_auth_message(e))
+                        print(f"[AUTH CRM] {e}")            # détail complet dans les logs Streamlit Cloud
+                        st.stop()
+
                     for i in ajout_crm:
-                        result = run_api_crm(i[0], i[1], i[2])
+                        result = run_api_crm(i[0], i[1], i[2], crm_hash, crm_token)
                         if result["status"] and 200 <= result["status"]  < 300:
                             if result["success"]==False:
                                 if result["message"]=="Line not updated, same value":
