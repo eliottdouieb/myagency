@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import re
+import unicodedata
 from io import StringIO, BytesIO
 from xlsx2csv import Xlsx2csv
 from openai import OpenAI
@@ -49,84 +51,112 @@ PAGE_CSS = """
 #     st.header("⚙️ Configuration Export")
 #     st.subheader("Google Sheets")
 sheet_name = "Suivi depenses Revolut"
+# ============================================================
+# Table de correspondance concierge -> emails
+# ------------------------------------------------------------
+# Les clés reprennent les noms tels qu'ils apparaissent dans la colonne
+# "Concierge" de l'export BackOffice : c'est la seule source renseignée à 100 %.
+# Côté Revolut, la colonne "Payer" vaut souvent "NYS" (cartes partagées) ou
+# porte une autre orthographe -> voir ALIAS_CONCIERGE juste en dessous.
+# Une chaîne vide = adresse encore inconnue, à demander au client.
+# ============================================================
 mail_mapping = {
-    "Aurelie Goncalves": {
-        "mail": "aurelie@myagency.group",
-        "mail_binome": "sanaa@myagency.group"
-    },
-    "Fabrice Alcaud": {
-        "mail": "fabrice@myagency.group",
-        "mail_binome": "coline@myagency.group"
-    },
-    "CB Fab": {
-        "mail": "fabrice@myagency.group",
-        "mail_binome": "coline@myagency.group"
-    },
-    "Lara Dogliotti": {
-        "mail": "lara@myagency.group",
-        "mail_binome": "sofia@myagency.group"
-    },
-    "CB LARA": {
-        "mail": "lara@myagency.group",
-        "mail_binome": "sofia@myagency.group"
-    },
-    "Mathilde Noemie Crystal Marie Amelie Bouffet": {
-        "mail": "mathilde@myagency.group",
-        "mail_binome": "julie@myagency.group"
-    },
-    "Mathile Severine Alonso": {
-        "mail": "mathildea@myagency.group",
-        "mail_binome": None
-    },
-    "CB MAthilde A": {
-        "mail": "mathildea@myagency.group",
-        "mail_binome": None
-    },
-    "Nourithe Guila Serraf": {
-        "mail": "nourithe@myagency.group",
-        "mail_binome": "alina@myagency.group"
-    },
-    "CB Nourithe": {
-        "mail": "nourithe@myagency.group",
-        "mail_binome": "alina@myagency.group"
-    },
-    "Pierre Olivier Marie Fallourd": {
-        "mail": "pierref@myagency.group",
-        "mail_binome": "anouchka@myagency.group"
-    },
-    "CB Pierre F": {
-        "mail": "pierref@myagency.group",
-        "mail_binome": "anouchka@myagency.group"
-    },
-    "Ruben Abitbol": {
-        "mail": "ruben@myagency.group",
-        "mail_binome": "edgar@myagency.group"
-    },
-    "Thalia Maatouk": {
-        "mail": "thalia@myagency.group",
-        "mail_binome": "corporate@myagency.group"
-    },
-    "CB COrporate": {
-        "mail": "thalia@myagency.group",
-        "mail_binome": "corporate@myagency.group"
-    },
-    "Vialina Glimnurova": {
-        "mail": "vialina@myagency.group",
-        "mail_binome": "alexandra@myagency.group"
-    },
-    "Yves Sauveur Abitbol": {
-        "mail": "yves@myagency.group",
-        "mail_binome": 'sofia@myagency.group'
-    },
-    "Cashback Yves": {
-        "mail": "yves@myagency.group",
-        "mail_binome": 'sofia@myagency.group'
-    },
-    "Zoe Marie Mevil": {
-        "mail": "hanaa@myagency.group",
-        "mail_binome": "neuilly@myagency.group"
-    }
+    "AlexandraSanti":          {"mail": "alexandra@myagency.group", "mail_binome": ""},
+    "AlinaTouroul-Chevalerie": {"mail": "alina@myagency.group",     "mail_binome": ""},
+    "AmirBassili":             {"mail": "",                         "mail_binome": ""},
+    "AnnaSitruk":              {"mail": "",                         "mail_binome": ""},
+    "AnouchkaCohen":           {"mail": "anouchka@myagency.group",  "mail_binome": ""},
+    "AurelieGoncalves":        {"mail": "aurelie@myagency.group",   "mail_binome": "sanaa@myagency.group"},
+    "ColineVolait":            {"mail": "coline@myagency.group",    "mail_binome": ""},
+    "EdgarLamy":               {"mail": "edgar@myagency.group",     "mail_binome": ""},
+    "FabriceAlcaud":           {"mail": "fabrice@myagency.group",   "mail_binome": "coline@myagency.group"},
+    "JulieMauguen":            {"mail": "julie@myagency.group",     "mail_binome": ""},
+    "LaraDogliotti":           {"mail": "lara@myagency.group",      "mail_binome": "sofia@myagency.group"},
+    "MathildeAlonso":          {"mail": "mathildea@myagency.group", "mail_binome": ""},
+    "MathildeBouffet":         {"mail": "mathilde@myagency.group",  "mail_binome": "julie@myagency.group"},
+    "MatthieuJanniere":        {"mail": "",                         "mail_binome": ""},
+    "MelanieLatouche":         {"mail": "",                         "mail_binome": ""},
+    "NouritheSiegel":          {"mail": "nourithe@myagency.group",  "mail_binome": "alina@myagency.group"},
+    "PierreFallourd":          {"mail": "pierref@myagency.group",   "mail_binome": "anouchka@myagency.group"},
+    "RubenAbitbol":            {"mail": "ruben@myagency.group",     "mail_binome": "edgar@myagency.group"},
+    "SofiaEscorihuela":        {"mail": "sofia@myagency.group",     "mail_binome": ""},
+    "ThaliaMaatouk":           {"mail": "thalia@myagency.group",    "mail_binome": "corporate@myagency.group"},
+    "YassineBen Ayed":         {"mail": "",                         "mail_binome": ""},
+    "YvesAbitbol":             {"mail": "yves@myagency.group",      "mail_binome": "sofia@myagency.group"},
+    # Présentes dans l'ancienne configuration, mais dans aucune ligne du BackOffice.
+    "Vialina Glimnurova":      {"mail": "vialina@myagency.group",   "mail_binome": "alexandra@myagency.group"},
+    "Zoe Marie Mevil":         {"mail": "hanaa@myagency.group",     "mail_binome": "neuilly@myagency.group"},
 }
+
+# Orthographes rencontrées côté Revolut, rattachées au nom BackOffice.
+ALIAS_CONCIERGE = {
+    "Mathilde Noemie Crystal Marie Amelie Bouffet": "MathildeBouffet",
+    "Mathile Severine Alonso":                      "MathildeAlonso",
+    "Nourithe Guila Serraf":                        "NouritheSiegel",
+    "Pierre Olivier Marie Fallourd":                "PierreFallourd",
+    "Yves Sauveur Abitbol":                         "YvesAbitbol",
+    "CB Fab":        "FabriceAlcaud",
+    "CB LARA":       "LaraDogliotti",
+    "CB MAthilde A": "MathildeAlonso",
+    "CB Nourithe":   "NouritheSiegel",
+    "CB Pierre F":   "PierreFallourd",
+    "CB COrporate":  "ThaliaMaatouk",
+    "Cashback Yves": "YvesAbitbol",
+}
+
+
+def _norm_nom(v):
+    """Normalise un nom : sans accents, sans séparateurs, en minuscules.
+
+    Permet de rapprocher "Aurelie Goncalves" (Revolut) de "AurelieGoncalves"
+    (BackOffice) sans dupliquer les entrées.
+    """
+    s = unicodedata.normalize("NFKD", str(v))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+_MAIL_INDEX = {_norm_nom(k): v for k, v in mail_mapping.items()}
+for _alias, _cible in ALIAS_CONCIERGE.items():
+    _infos = _MAIL_INDEX.get(_norm_nom(_cible))
+    if _infos is not None:
+        _MAIL_INDEX[_norm_nom(_alias)] = _infos
+
+
+def get_mails(nom):
+    """Retourne (mail, mail_binome). Chaînes vides si le concierge est inconnu.
+
+    Ne renvoie jamais None : une valeur manquante s'affiche "" dans les tableaux
+    et les exports, plus "None".
+    """
+    infos = _MAIL_INDEX.get(_norm_nom(nom)) or {}
+    return infos.get("mail") or "", infos.get("mail_binome") or ""
+
+
+def completer_emails(df):
+    """Complète email / email_binome depuis la colonne Concierge du BackOffice.
+
+    La colonne "Payer" de Revolut vaut "NYS" sur les cartes partagées et ne
+    permet pas d'identifier le concierge. Dès qu'une ligne Revolut est
+    rapprochée d'une ligne BackOffice, on prend le concierge de ce côté-là, où
+    il est renseigné sur 100 % des lignes.
+    """
+    if df is None or df.empty or "Concierge" not in df.columns:
+        return df
+
+    df = df.copy()
+    for col in ("email", "email_binome"):
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("")
+
+    infos = df["Concierge"].map(get_mails)
+    for col, rang in (("email", 0), ("email_binome", 1)):
+        depuis_bo = infos.map(lambda t, _r=rang: t[_r])
+        vide = df[col].astype(str).str.strip() == ""
+        df.loc[vide, col] = depuis_bo[vide]
+
+    return df
 
 
 # ============================================================
@@ -214,8 +244,9 @@ def load_data(revolut_file, bo_file):
     mask = df_rev["Card label"].isin(cashback_labels)
     df_rev.loc[mask, ["Payer", "Card label"]] = df_rev.loc[mask, ["Card label", "Payer"]].values
 
-    df_rev['email'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail"))
-    df_rev['email_binome'] = df_rev['Payer'].map(lambda x: mail_mapping.get(x, {}).get("mail_binome"))
+    _mails = df_rev['Payer'].map(get_mails)
+    df_rev['email'] = _mails.map(lambda t: t[0])
+    df_rev['email_binome'] = _mails.map(lambda t: t[1])
 
     # ✅ Identifiant de transaction Revolut = colonne C (3e colonne du CSV)
     rev_id_col = df_rev.columns[2]
@@ -1138,6 +1169,16 @@ def run_interface():
     m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
     matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
     maj_sets(matches_potentiel)
+
+    # ✅ Les lignes rapprochées récupèrent le concierge depuis le BackOffice,
+    #    puisque "Payer" vaut "NYS" sur les cartes partagées.
+    matches_id = completer_emails(matches_id)
+    matches_ok = completer_emails(matches_ok)
+    matches_sans_libelle = completer_emails(matches_sans_libelle)
+    matches_potentiel_sans_conversion = completer_emails(matches_potentiel_sans_conversion)
+    matches_sans_date = completer_emails(matches_sans_date)
+    matches_sans_montant = completer_emails(matches_sans_montant)
+    matches_potentiel = completer_emails(matches_potentiel)
 
 
     # Enlève des matches les lignes déjà classées "OK sans facture"
