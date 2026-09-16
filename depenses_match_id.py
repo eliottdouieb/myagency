@@ -150,9 +150,62 @@ def _norm_txn_id(v):
     return s
 
 
+# Colonnes indispensables dans chaque export. Si elles manquent, c'est presque
+# toujours qu'on a importé le mauvais fichier (ou interverti les deux).
+REQUIRED_REV_COLS = [
+    "Date started (UTC)", "ID", "Type", "Description",
+    "Payer", "Card label", "Total amount",
+]
+REQUIRED_BO_COLS = ["Date", "Libelle", "Compte", "Débit(€)", "Crédit (€)"]
+
+
+class FichierInvalide(Exception):
+    """Le fichier importé n'a pas la structure attendue."""
+
+
+def _read_revolut_csv(revolut_file):
+    """Lit l'export Revolut quel que soit son séparateur.
+
+    Revolut exporte en ';' ou en ',' selon la région du compte, et préfixe
+    parfois le fichier d'un BOM UTF-8. Avec le séparateur par défaut de pandas,
+    un export en ';' donne une colonne unique et le moindre df["Card label"]
+    part en KeyError.
+    """
+    derniere_erreur = None
+    for sep in (",", ";", "\t"):
+        try:
+            revolut_file.seek(0)
+        except (AttributeError, OSError):
+            pass
+        try:
+            df = pd.read_csv(revolut_file, sep=sep, encoding="utf-8-sig")
+        except Exception as err:
+            derniere_erreur = err
+            continue
+        if df.shape[1] > 1:
+            return df
+    raise FichierInvalide(
+        "Impossible de lire le CSV Revolut : séparateur non reconnu "
+        f"(essais : virgule, point-virgule, tabulation). {derniere_erreur or ''}"
+    )
+
+
+def _verifie_colonnes(df, requises, nom_fichier):
+    manquantes = [c for c in requises if c not in df.columns]
+    if manquantes:
+        trouvees = ", ".join(str(c) for c in list(df.columns)[:12])
+        raise FichierInvalide(
+            f"Le fichier importé comme **{nom_fichier}** ne contient pas les "
+            f"colonnes attendues : {', '.join(manquantes)}.\n\n"
+            f"Colonnes trouvées : {trouvees}…\n\n"
+            "Vérifie que tu n'as pas interverti l'export Revolut et l'export BackOffice."
+        )
+
+
 @st.cache_data
 def load_data(revolut_file, bo_file):
-    df_rev = pd.read_csv(revolut_file)
+    df_rev = _read_revolut_csv(revolut_file)
+    _verifie_colonnes(df_rev, REQUIRED_REV_COLS, "export Revolut")
 
     cashback_labels = [
     "CB LARA", "CB MAthilde A", "CB Fab", "CB Nourithe",
@@ -172,6 +225,7 @@ def load_data(revolut_file, bo_file):
     Xlsx2csv(bo_file, outputencoding="utf-8").convert(buffer)
     buffer.seek(0)
     df_bo = pd.read_csv(buffer, skiprows=1)
+    _verifie_colonnes(df_bo, REQUIRED_BO_COLS, "export BackOffice")
 
     # ✅ Identifiant de transaction BO = colonne "dTransactionId" (colonne M)
     if "dTransactionId" in df_bo.columns:
@@ -674,7 +728,11 @@ def run_interface():
     st.markdown("---")
 
     # 1. Chargement des données brutes (refait à chaque rerun, c'est OK)
-    df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+    try:
+        df_rev_raw, df_bo_raw = load_data(uploaded_revolut, uploaded_bo)
+    except FichierInvalide as err:
+        st.error(f"❌ {err}")
+        st.stop()
 
 
     # =========================
