@@ -144,19 +144,32 @@ def get_mails(nom):
 
 
 def _groupes_ventiles(m):
-    """idx_rev dont les écritures BO candidates somment au montant Revolut.
+    """Repère les groupes où un paiement correspond légitimement à plusieurs lignes.
 
-    C'est la signature d'une dépense ventilée sur plusieurs dossiers : on garde
-    alors tout le groupe au lieu de n'en retenir qu'une seule écriture.
+    Deux formes de ventilation, symétriques :
+      - une dépense Revolut éclatée sur plusieurs dossiers comptables
+        (N écritures BO dont la somme égale le montant Revolut) ;
+      - une écriture comptable réglée en plusieurs paiements Revolut
+        (N transactions dont la somme égale le montant BO) — typiquement une
+        facture Air France de 1 000 € payée en 10 fois 100 €.
+
+    Retourne (idx_rev ventilés, idx_bo ventilés).
     """
+    ventiles_rev, ventiles_bo = set(), set()
     if "Montant_rev" not in m.columns or "Montant_bo" not in m.columns:
-        return set()
-    ventiles = set()
+        return ventiles_rev, ventiles_bo
+
     for idx_rev, g in m.groupby("idx_rev"):
         g = g.drop_duplicates(subset=["idx_bo"])
         if len(g) > 1 and round(g["Montant_bo"].sum(), 2) == round(g["Montant_rev"].iloc[0], 2):
-            ventiles.add(idx_rev)
-    return ventiles
+            ventiles_rev.add(idx_rev)
+
+    for idx_bo, g in m.groupby("idx_bo"):
+        g = g.drop_duplicates(subset=["idx_rev"])
+        if len(g) > 1 and round(g["Montant_rev"].sum(), 2) == round(g["Montant_bo"].iloc[0], 2):
+            ventiles_bo.add(idx_bo)
+
+    return ventiles_rev, ventiles_bo
 
 
 def apparier(m):
@@ -167,11 +180,12 @@ def apparier(m):
     du même commerçant le même jour. drop_duplicates(["idx_rev","idx_bo"]) ne
     supprime que les paires identiques, pas le un-vers-plusieurs.
 
-    On conserve donc :
-      1. les dépenses ventilées (groupe BO dont la somme = le montant Revolut),
-      2. puis, pour le reste, le meilleur candidat de chaque côté — montant le
-         plus proche, puis date la plus proche — chaque écriture n'étant
-         utilisée qu'une fois.
+    On conserve donc, dans cet ordre :
+      1. les dépenses Revolut ventilées sur plusieurs écritures comptables,
+      2. les écritures comptables réglées en plusieurs paiements Revolut,
+      3. pour tout le reste, le meilleur candidat de chaque côté — montant le
+         plus proche, puis date la plus proche — chaque ligne n'étant utilisée
+         qu'une seule fois.
     """
     if m is None or len(m) == 0:
         return m
@@ -187,17 +201,27 @@ def apparier(m):
     else:
         m["_ec_jour"] = 0
 
-    ventiles = _groupes_ventiles(m)
+    ventiles_rev, ventiles_bo = _groupes_ventiles(m)
     garde, pris_rev, pris_bo = [], set(), set()
 
-    # 1) Dépenses ventilées : tout le groupe est conservé.
+    # 1) Dépense Revolut ventilée sur plusieurs écritures : on garde le groupe.
     for pos in range(len(m)):
-        if m["idx_rev"].iat[pos] in ventiles and m["idx_bo"].iat[pos] not in pris_bo:
+        idx_rev, idx_bo = m["idx_rev"].iat[pos], m["idx_bo"].iat[pos]
+        if idx_rev in ventiles_rev and idx_bo not in pris_bo:
             garde.append(pos)
-            pris_bo.add(m["idx_bo"].iat[pos])
-    pris_rev |= ventiles
+            pris_bo.add(idx_bo)
+            pris_rev.add(idx_rev)
 
-    # 2) Le reste : un-pour-un, meilleures paires d'abord.
+    # 2) Écriture réglée en plusieurs paiements : on garde tous les paiements.
+    #    idx_bo n'est marqué qu'après la boucle, pour rester dispo dans son groupe.
+    for pos in range(len(m)):
+        idx_rev, idx_bo = m["idx_rev"].iat[pos], m["idx_bo"].iat[pos]
+        if idx_bo in ventiles_bo and idx_bo not in pris_bo and idx_rev not in pris_rev:
+            garde.append(pos)
+            pris_rev.add(idx_rev)
+    pris_bo |= ventiles_bo
+
+    # 3) Le reste : un-pour-un, meilleures paires d'abord.
     for pos in m.sort_values(["_ec_mnt", "_ec_jour"], kind="mergesort").index:
         idx_rev, idx_bo = m["idx_rev"].iat[pos], m["idx_bo"].iat[pos]
         if idx_rev in pris_rev or idx_bo in pris_bo:
@@ -205,6 +229,8 @@ def apparier(m):
         garde.append(pos)
         pris_rev.add(idx_rev)
         pris_bo.add(idx_bo)
+
+    m["Ventilation"] = m["idx_rev"].isin(ventiles_rev) | m["idx_bo"].isin(ventiles_bo)
 
     return m.iloc[sorted(garde)].drop(columns=["_ec_mnt", "_ec_jour"])
 
@@ -580,6 +606,17 @@ def crm_login():
     st.session_state["crm_hash"] = ConciergeHash
     st.session_state["crm_token"] = ApiToken
     return ConciergeHash, ApiToken
+
+
+def _est_ventilee(ligne):
+    """Vrai si la ligne fait partie d'un groupe ventilé.
+
+    Un groupe ventilé est déjà cohérent : la somme d'un côté égale le montant de
+    l'autre. Y écrire le montant Revolut écraserait l'écriture comptable — une
+    facture de 1 000 € réglée en 10 fois 100 € tomberait à 100 €. On n'envoie
+    donc JAMAIS de correction de montant sur ces lignes.
+    """
+    return bool(ligne.get("Ventilation", False))
 
 
 def crm_update_amount(invoice_number: str, new_amount: float, date_iso: str):
@@ -1359,7 +1396,7 @@ def run_interface():
             "idx_rev", "idx_bo", "Date", "Montant",
             "Description", "Libelle","Invoice","ExperienceDate", "Payer",
             "Exchange rate", "Orig currency", "Orig amount",
-            "email","email_binome","Compte","NumCompta", "RevTxnId", "BoTxnId"
+            "email","email_binome","Compte","NumCompta", "Ventilation", "RevTxnId", "BoTxnId"
         ]
 
         safe_cols = lambda df: [c for c in base_cols if c in df.columns]
@@ -1384,7 +1421,7 @@ def run_interface():
                 "Montant_rev", "Montant_bo",
                 "Description", "Libelle", "Invoice", "ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome", "Compte", "NumCompta"
+                "email", "email_binome", "Compte", "NumCompta", "Ventilation"
             ]
             df_id_view = matches_id[[c for c in cols_id if c in matches_id.columns]].copy()
             df_id_view.insert(0, "Statut", "✅ Valide + modif CRM")
@@ -1449,7 +1486,7 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome","NumCompta"
+                "email", "email_binome","NumCompta", "Ventilation"
             ]
             df_sd_view = matches_sans_date[[c for c in cols_sd if c in matches_sans_date.columns]]
             edited_sd = display_interactive_table(df_sd_view, "sd")
@@ -1469,7 +1506,7 @@ def run_interface():
                 "Date_rev", "Date_bo",
                 "Montant_rev", "Montant_bo", "Description", "Libelle","Invoice","ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome","NumCompta"
+                "email", "email_binome","NumCompta", "Ventilation"
             ]
             df_cols_pots_sans_conversion_view = matches_potentiel_sans_conversion[
                 [c for c in cols_pots_sans_conversion if c in matches_potentiel_sans_conversion.columns]
@@ -1492,7 +1529,7 @@ def run_interface():
                 "Date", "Montant_rev", "Montant_bo",
                 "Description", "Libelle", "Invoice", "ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome", "NumCompta"
+                "email", "email_binome", "NumCompta", "Ventilation"
             ]
             df_sm_view = matches_sans_montant[[c for c in cols_sm if c in matches_sans_montant.columns]].copy()
             df_sm_view.insert(0, "Statut", "✅ Valide + modif CRM")
@@ -1532,7 +1569,7 @@ def run_interface():
                 "Montant_rev", "Montant_bo",
                 "Description", "Libelle", "Invoice", "ExperienceDate", "Payer",
                 "Exchange rate", "Orig currency", "Orig amount",
-                "email", "email_binome", "NumCompta"
+                "email", "email_binome", "NumCompta", "Ventilation"
             ]
             df_pot_view = matches_potentiel[[c for c in cols_pot if c in matches_potentiel.columns]].copy()
             df_pot_view.insert(0, "Statut", "✅ Valide + modif CRM")
@@ -1561,6 +1598,41 @@ def run_interface():
         st.markdown("---")
 
         # ============================================================
+        # ============================================================
+        # Dépenses ventilées : récapitulatif en lecture seule
+        #   Un groupe ventilé est déjà cohérent (la somme d'un côté égale le
+        #   montant de l'autre) : il n'y a rien à corriger dans le BO, et une
+        #   écriture de montant y détruirait l'écriture comptable.
+        # ============================================================
+        _sources_vent = [
+            matches_id, matches_ok, matches_sans_libelle,
+            matches_potentiel_sans_conversion, matches_sans_date,
+            matches_sans_montant, matches_potentiel,
+        ]
+        _vent = [
+            d[d["Ventilation"] == True]
+            for d in _sources_vent
+            if d is not None and len(d) and "Ventilation" in d.columns
+        ]
+        _vent = [d for d in _vent if len(d)]
+
+        if _vent:
+            df_vent = pd.concat(_vent, ignore_index=True)
+            with st.expander(f"🧩 Dépenses ventilées détectées ({len(df_vent)}) — lecture seule"):
+                st.info(
+                    "Ces lignes forment des groupes cohérents : soit une dépense Revolut "
+                    "répartie sur plusieurs dossiers, soit une écriture comptable réglée "
+                    "en plusieurs paiements. **Aucun montant ne sera modifié dans le BO "
+                    "pour ces lignes**, même si vous cliquez sur le bouton d'écriture."
+                )
+                _cols = [c for c in [
+                    "Date_rev", "Date_bo", "Description", "Libelle",
+                    "Montant_rev", "Montant_bo", "Concierge", "NumCompta",
+                ] if c in df_vent.columns]
+                st.dataframe(df_vent[_cols], use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
         # Helpers partagés (définis hors des boutons => toujours dispo)
         # ============================================================
         def _get_invoice_col(df):
@@ -1625,8 +1697,11 @@ def run_interface():
                         amt = r.get("Montant_rev")
                         date_iso = _safe_iso_date(r.get("Date") if "Date" in edited_sm.columns else r.get("Date_rev"))
                         if inv and pd.notna(amt) and date_iso:
-                            status, body = crm_update_amount(inv, float(amt), date_iso)
-                            api_logs.append(f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
+                            if _est_ventilee(r):
+                                api_logs.append(f"🧩 Dépense ventilée — numéro de piece {inv} : montant NON modifié (le groupe est déjà cohérent)")
+                            else:
+                                status, body = crm_update_amount(inv, float(amt), date_iso)
+                                api_logs.append(f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
 
             # edited_pot -> date + montant (Statut "✅ Valide + modif CRM")
             if edited_pot is not None and not edited_pot.empty and "Statut" in edited_pot.columns:
@@ -1644,8 +1719,11 @@ def run_interface():
                             status, body = crm_update_date(inv, current_date, new_date)
                             api_logs.append(f"📅 CRM date — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}")
                         if inv and pd.notna(amt) and date_iso:
-                            status, body = crm_update_amount(inv, float(amt), date_iso)
-                            api_logs.append(f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
+                            if _est_ventilee(r):
+                                api_logs.append(f"🧩 Dépense ventilée — numéro de piece {inv} : montant NON modifié (le groupe est déjà cohérent)")
+                            else:
+                                status, body = crm_update_amount(inv, float(amt), date_iso)
+                                api_logs.append(f"💰 CRM montant — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
 
             # edited_id (match par identifiant) -> date + montant (Statut "✅ Valide + modif CRM")
             if edited_id is not None and not edited_id.empty and "Statut" in edited_id.columns:
@@ -1661,8 +1739,11 @@ def run_interface():
                         status, body = crm_update_date(inv, current_date, new_date)
                         api_logs.append(f"📅 CRM date (ID) — {inv} | {current_date} → {new_date} (HTTP {status}) | {body}")
                     if inv and pd.notna(amt) and new_date:
-                        status, body = crm_update_amount(inv, float(amt), new_date)
-                        api_logs.append(f"💰 CRM montant (ID) — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
+                        if _est_ventilee(r):
+                            api_logs.append(f"🧩 Dépense ventilée — numéro de piece {inv} : montant NON modifié (le groupe est déjà cohérent)")
+                        else:
+                            status, body = crm_update_amount(inv, float(amt), new_date)
+                            api_logs.append(f"💰 CRM montant (ID) — numéro de piece {inv} → {amt} (HTTP {status}) | {body}")
 
             if not api_logs:
                 api_logs.append("ℹ️ Aucune ligne « ✅ Valide + modif CRM » à envoyer au BO.")
