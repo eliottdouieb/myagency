@@ -61,31 +61,41 @@ sheet_name = "Suivi depenses Revolut"
 # Une chaîne vide = adresse encore inconnue, à demander au client.
 # ============================================================
 mail_mapping = {
-    "AlexandraSanti":          {"mail": "alexandra@myagency.group", "mail_binome": ""},
-    "AlinaTouroul-Chevalerie": {"mail": "alina@myagency.group",     "mail_binome": ""},
-    "AmirBassili":             {"mail": "",                         "mail_binome": ""},
-    "AnnaSitruk":              {"mail": "",                         "mail_binome": ""},
-    "AnouchkaCohen":           {"mail": "anouchka@myagency.group",  "mail_binome": ""},
-    "AurelieGoncalves":        {"mail": "aurelie@myagency.group",   "mail_binome": "sanaa@myagency.group"},
-    "ColineVolait":            {"mail": "coline@myagency.group",    "mail_binome": ""},
-    "EdgarLamy":               {"mail": "edgar@myagency.group",     "mail_binome": ""},
-    "FabriceAlcaud":           {"mail": "fabrice@myagency.group",   "mail_binome": "coline@myagency.group"},
-    "JulieMauguen":            {"mail": "julie@myagency.group",     "mail_binome": ""},
-    "LaraDogliotti":           {"mail": "lara@myagency.group",      "mail_binome": "sofia@myagency.group"},
-    "MathildeAlonso":          {"mail": "mathildea@myagency.group", "mail_binome": ""},
-    "MathildeBouffet":         {"mail": "mathilde@myagency.group",  "mail_binome": "julie@myagency.group"},
-    "MatthieuJanniere":        {"mail": "",                         "mail_binome": ""},
-    "MelanieLatouche":         {"mail": "",                         "mail_binome": ""},
-    "NouritheSiegel":          {"mail": "nourithe@myagency.group",  "mail_binome": "alina@myagency.group"},
-    "PierreFallourd":          {"mail": "pierref@myagency.group",   "mail_binome": "anouchka@myagency.group"},
-    "RubenAbitbol":            {"mail": "ruben@myagency.group",     "mail_binome": "edgar@myagency.group"},
-    "SofiaEscorihuela":        {"mail": "sofia@myagency.group",     "mail_binome": ""},
-    "ThaliaMaatouk":           {"mail": "thalia@myagency.group",    "mail_binome": "corporate@myagency.group"},
-    "YassineBen Ayed":         {"mail": "",                         "mail_binome": ""},
-    "YvesAbitbol":             {"mail": "yves@myagency.group",      "mail_binome": "sofia@myagency.group"},
-    # Présentes dans l'ancienne configuration, mais dans aucune ligne du BackOffice.
-    "Vialina Glimnurova":      {"mail": "vialina@myagency.group",   "mail_binome": "alexandra@myagency.group"},
-    "Zoe Marie Mevil":         {"mail": "hanaa@myagency.group",     "mail_binome": "neuilly@myagency.group"},
+    # --- Liste validée par la cliente (Sanaa, 17/09/2026) ---
+    "FabriceAlcaud":           {"mail": "fabrice@myagency.group",       "mail_binome": "alexandra@myagency.group"},
+    "NouritheSiegel":          {"mail": "nourithe@myagency.group",      "mail_binome": "alina@myagency.group"},
+    "ColineVolait":            {"mail": "coline@myagency.group",        "mail_binome": ""},
+    "AurelieGoncalves":        {"mail": "aurelie@myagency.group",       "mail_binome": "sanaa@myagency.group"},
+    "LaraDogliotti":           {"mail": "lara@myagency.group",          "mail_binome": "sofia@myagency.group"},
+    "Neuilly":                 {"mail": "neuilly@myagency.group",       "mail_binome": ""},
+    "MathildeAlonso":          {"mail": "mathildea@myagency.group",     "mail_binome": ""},
+    "MathildeBouffet":         {"mail": "mathilde@myagency.group",      "mail_binome": "julie@myagency.group"},
+    "MelanieLatouche":         {"mail": "melanie@hemeconciergerie.com", "mail_binome": ""},
+    "PierreFallourd":          {"mail": "pierref@myagency.group",       "mail_binome": "anouchka@myagency.group"},
+    "RubenAbitbol":            {"mail": "ruben@myagency.group",         "mail_binome": ""},
+    "SofiaEscorihuela":        {"mail": "sofia@myagency.group",         "mail_binome": ""},
+    "ThaliaMaatouk":           {"mail": "thalia@myagency.group",        "mail_binome": "corporate@myagency.group"},
+    "YvesAbitbol":             {"mail": "yves@myagency.group",          "mail_binome": ""},
+
+    # Binômes confirmés par la cliente le 17/09/2026 (paires réciproques).
+    "AlinaTouroul-Chevalerie": {"mail": "alina@myagency.group",         "mail_binome": "nourithe@myagency.group"},
+    "AlexandraSanti":          {"mail": "alexandra@myagency.group",     "mail_binome": "fabrice@myagency.group"},
+    "AnouchkaCohen":           {"mail": "anouchka@myagency.group",      "mail_binome": "pierref@myagency.group"},
+    "JulieMauguen":            {"mail": "julie@myagency.group",         "mail_binome": "mathilde@myagency.group"},
+
+    # Sans carte propre : rattachés à la boîte corporate avec Thalia.
+    "MatthieuJanniere":        {"mail": "corporate@myagency.group",     "mail_binome": "thalia@myagency.group"},
+    "AnnaSitruk":              {"mail": "corporate@myagency.group",     "mail_binome": "thalia@myagency.group"},
+    "YassineBen Ayed":         {"mail": "corporate@myagency.group",     "mail_binome": "thalia@myagency.group"},
+
+    # En congé maternité, à conserver.
+    "Vialina Glimnurova":      {"mail": "vialina@myagency.group",       "mail_binome": "alexandra@myagency.group"},
+
+    # Ont quitté la société : l'entrée est conservée pour que leurs dépenses
+    # passées restent relançables, mais pointe vers qui reprend le dossier.
+    "EdgarLamy":               {"mail": "ruben@myagency.group",         "mail_binome": ""},
+    "AmirBassili":             {"mail": "fabrice@myagency.group",       "mail_binome": "alexandra@myagency.group"},
+    # Zoe Marie Mevil : supprimée le 17/09/2026, aucune dépense au BackOffice.
 }
 
 # Orthographes rencontrées côté Revolut, rattachées au nom BackOffice.
