@@ -143,6 +143,72 @@ def get_mails(nom):
     return infos.get("mail") or "", infos.get("mail_binome") or ""
 
 
+def _groupes_ventiles(m):
+    """idx_rev dont les écritures BO candidates somment au montant Revolut.
+
+    C'est la signature d'une dépense ventilée sur plusieurs dossiers : on garde
+    alors tout le groupe au lieu de n'en retenir qu'une seule écriture.
+    """
+    if "Montant_rev" not in m.columns or "Montant_bo" not in m.columns:
+        return set()
+    ventiles = set()
+    for idx_rev, g in m.groupby("idx_rev"):
+        g = g.drop_duplicates(subset=["idx_bo"])
+        if len(g) > 1 and round(g["Montant_bo"].sum(), 2) == round(g["Montant_rev"].iloc[0], 2):
+            ventiles.add(idx_rev)
+    return ventiles
+
+
+def apparier(m):
+    """Réduit un résultat de merge à un appariement exploitable.
+
+    Un merge sur des clés non uniques (date + libellé, par exemple) produit un
+    produit cartésien : une transaction Revolut face à toutes les écritures BO
+    du même commerçant le même jour. drop_duplicates(["idx_rev","idx_bo"]) ne
+    supprime que les paires identiques, pas le un-vers-plusieurs.
+
+    On conserve donc :
+      1. les dépenses ventilées (groupe BO dont la somme = le montant Revolut),
+      2. puis, pour le reste, le meilleur candidat de chaque côté — montant le
+         plus proche, puis date la plus proche — chaque écriture n'étant
+         utilisée qu'une fois.
+    """
+    if m is None or len(m) == 0:
+        return m
+
+    m = m.reset_index(drop=True).copy()
+
+    if "Montant_rev" in m.columns and "Montant_bo" in m.columns:
+        m["_ec_mnt"] = (m["Montant_rev"] - m["Montant_bo"]).abs()
+    else:
+        m["_ec_mnt"] = 0.0
+    if "Date_rev" in m.columns and "Date_bo" in m.columns:
+        m["_ec_jour"] = (m["Date_rev"] - m["Date_bo"]).dt.days.abs()
+    else:
+        m["_ec_jour"] = 0
+
+    ventiles = _groupes_ventiles(m)
+    garde, pris_rev, pris_bo = [], set(), set()
+
+    # 1) Dépenses ventilées : tout le groupe est conservé.
+    for pos in range(len(m)):
+        if m["idx_rev"].iat[pos] in ventiles and m["idx_bo"].iat[pos] not in pris_bo:
+            garde.append(pos)
+            pris_bo.add(m["idx_bo"].iat[pos])
+    pris_rev |= ventiles
+
+    # 2) Le reste : un-pour-un, meilleures paires d'abord.
+    for pos in m.sort_values(["_ec_mnt", "_ec_jour"], kind="mergesort").index:
+        idx_rev, idx_bo = m["idx_rev"].iat[pos], m["idx_bo"].iat[pos]
+        if idx_rev in pris_rev or idx_bo in pris_bo:
+            continue
+        garde.append(pos)
+        pris_rev.add(idx_rev)
+        pris_bo.add(idx_bo)
+
+    return m.iloc[sorted(garde)].drop(columns=["_ec_mnt", "_ec_jour"])
+
+
 def completer_emails(df):
     """Complète email / email_binome depuis la colonne Concierge du BackOffice.
 
@@ -1104,7 +1170,7 @@ def run_interface():
     ]
 
     # -- Algorithmes (sur le sous-ensemble "sans ID") --
-    matches_ok = filtre_nouveaux(
+    matches_ok = apparier(filtre_nouveaux(
         df_rev_f.merge(
             df_bo_f,
             left_on=["Date", "Montant", "Libelle_match"],
@@ -1113,10 +1179,10 @@ def run_interface():
             suffixes=("_rev", "_bo")
         )
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
+    ))
     maj_sets(matches_ok)
 
-    matches_sans_libelle = filtre_nouveaux(
+    matches_sans_libelle = apparier(filtre_nouveaux(
         df_rev_f.merge(
             df_bo_f,
             left_on=["Date", "Montant"],
@@ -1124,7 +1190,7 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
+    ))
     maj_sets(matches_sans_libelle)
 
     m_sans_conversion = (
@@ -1141,10 +1207,11 @@ def run_interface():
     matches_potentiel_sans_conversion = filtre_nouveaux(m_sans_conversion[m_sans_conversion["ecart_jours"] <= 3])
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Orig currency']!='EUR']
     matches_potentiel_sans_conversion=matches_potentiel_sans_conversion[matches_potentiel_sans_conversion['Exchange rate'].isna()]
+    matches_potentiel_sans_conversion = apparier(matches_potentiel_sans_conversion)
 
     maj_sets(matches_potentiel_sans_conversion)
 
-    matches_sans_date = filtre_nouveaux(
+    matches_sans_date = apparier(filtre_nouveaux(
         df_rev_f.merge(
             df_bo_f,
             left_on=["Montant", "Libelle_match"],
@@ -1152,10 +1219,10 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
+    ))
     maj_sets(matches_sans_date)
 
-    matches_sans_montant = filtre_nouveaux(
+    matches_sans_montant = apparier(filtre_nouveaux(
         df_rev_f.merge(
             df_bo_f,
             left_on=["Date", "Libelle_match"],
@@ -1163,7 +1230,7 @@ def run_interface():
             how="inner",
             suffixes=("_rev", "_bo")
         ).drop_duplicates(subset=["idx_rev", "idx_bo"])
-    )
+    ))
     maj_sets(matches_sans_montant)
 
     m_pot = (
@@ -1177,7 +1244,7 @@ def run_interface():
         .drop_duplicates(subset=["idx_rev", "idx_bo"])
     )
     m_pot["ecart_jours"] = (m_pot["Date_bo"] - m_pot["Date_rev"]).dt.days.abs()
-    matches_potentiel = filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3])
+    matches_potentiel = apparier(filtre_nouveaux(m_pot[m_pot["ecart_jours"] <= 3]))
     maj_sets(matches_potentiel)
 
     # ✅ Les lignes rapprochées récupèrent le concierge depuis le BackOffice,
